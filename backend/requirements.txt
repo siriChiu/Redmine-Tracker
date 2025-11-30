@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+python-redmine
+pyyaml
+pydantic
+pyinstaller

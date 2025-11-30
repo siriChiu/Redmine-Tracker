@@ -1,0 +1,158 @@
+/* Calendar Container */
+.calendar-container {
+    height: 100%;
+    padding: 10px;
+    background-color: #0f0f14;
+    color: #e0e0e0;
+}
+
+/* FullCalendar Overrides */
+.fc {
+    background-color: #19191b;
+    font-family: 'Inter', sans-serif;
+    padding: 0;
+    border-radius: 0;
+}
+
+/* Toolbar */
+.fc-header-toolbar {
+    margin-bottom: 10px !important;
+    padding: 0 5px !important;
+}
+
+.fc-toolbar-title {
+    font-size: 1.1em !important;
+    font-weight: 600;
+    color: white;
+}
+
+.fc-button {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    color: #ccc !important;
+    font-weight: 500 !important;
+    text-transform: capitalize;
+    border-radius: 4px !important;
+    padding: 4px 10px !important;
+    font-size: 0.85em !important;
+    transition: all 0.2s ease;
+    margin: 0 2px !important;
+}
+
+.fc-button:hover {
+    background-color: rgba(255, 255, 255, 0.15) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: white !important;
+}
+
+.fc-button-active {
+    background-color: var(--primary) !important;
+    border-color: var(--primary) !important;
+    color: white !important;
+}
+
+/* Grid & Cells */
+.fc-theme-standard td,
+.fc-theme-standard th {
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background-color: #19191b !important;
+}
+
+.fc-col-header-cell {
+    background-color: #19191b !important;
+    padding: 8px 0 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.fc-col-header-cell-cushion {
+    color: #e0e0e0 !important;
+    font-weight: 600;
+    font-size: 0.9em;
+    text-decoration: none !important;
+    display: inline-block;
+    padding: 4px;
+}
+
+.fc-scrollgrid {
+    border: none !important;
+}
+
+.fc-timegrid-slot {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.fc-timegrid-slot-label-cushion {
+    color: #666;
+    font-size: 0.75em;
+}
+
+/* Today Highlight */
+.fc-day-today {
+    background-color: rgba(59, 130, 246, 0.05) !important;
+}
+
+/* Events */
+.fc-event {
+    border: none !important;
+    border-radius: 2px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    padding: 1px 2px;
+}
+
+.glass-event {
+    backdrop-filter: blur(4px);
+    border-left: 2px solid #3b82f6 !important;
+}
+
+.fc-event-title {
+    font-weight: 600;
+    font-size: 0.8em;
+}
+
+.fc-event-time {
+    font-size: 0.75em;
+    opacity: 0.8;
+}
+
+/* Lunch Break & Grayed Out Times */
+.lunch-break,
+.gray-out-time {
+    background-color: rgba(255, 255, 255, 0.03) !important;
+    background-image: repeating-linear-gradient(45deg,
+            transparent,
+            transparent 10px,
+            rgba(255, 255, 255, 0.02) 10px,
+            rgba(255, 255, 255, 0.02) 20px) !important;
+    border: none !important;
+    opacity: 1 !important;
+}
+
+/* Now Indicator */
+.fc-now-indicator-line {
+    border-color: #ef4444 !important;
+    border-width: 1px !important;
+}
+
+.fc-now-indicator-arrow {
+    border-color: #ef4444 !important;
+    border-width: 4px !important;
+}
+
+/* Scrollbar */
+.fc-scroller::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+}
+
+.fc-scroller::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.fc-scroller::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+
+.fc-scroller::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}

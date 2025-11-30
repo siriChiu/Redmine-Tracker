@@ -1,0 +1,64 @@
+{
+  "name": "redmine-tracker",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A Redmine time tracking and daily planning application",
+  "author": "Siri Chiu",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k --success first \"vite\" \"python backend/main.py\" \"wait-on tcp:5173 tcp:8000 && electron .\"",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "build:backend": ".\\.venv\\Scripts\\python.exe -m PyInstaller --noconsole --name backend --onefile --distpath backend/dist --workpath backend/build --specpath backend backend/main.py",
+    "dist": "npm run build:backend && npm run build && electron-builder"
+  },
+  "build": {
+    "appId": "com.redmine.tracker",
+    "productName": "Redmine Tracker",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "backend/dist/backend.exe",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "backend/dist/backend.exe"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "${productName} v${version}.${ext}"
+    }
+  },
+  "dependencies": {
+    "@fullcalendar/daygrid": "^6.1.19",
+    "@fullcalendar/interaction": "^6.1.19",
+    "@fullcalendar/react": "^6.1.19",
+    "@fullcalendar/timegrid": "^6.1.19",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.0",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.0",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.3",
+    "electron-builder": "^26.0.12",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.4.24",
+    "globals": "^16.5.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.46.3",
+    "vite": "^7.2.2",
+    "wait-on": "^9.0.3"
+  }
+}

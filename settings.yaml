@@ -1,0 +1,30 @@
+api_key: 0838334c37ccde33df5457c60e39839b3ab024d7
+profiles:
+- activity_id: 9
+  comments: PTO/Sick leave/Holiday
+  issue_id: 15481
+  issue_name: PTO/Sick leave/Holiday
+  name: PTO/Sick
+  project_id: 316
+  project_name: OS/BSP team
+- activity_id: 9
+  comments: SW Weekly Meeting
+  issue_id: 15067
+  issue_name: SW Weekly Meeting
+  name: sw-meeting
+  project_id: 316
+  project_name: OS/BSP team
+- activity_id: 9
+  comments: '[SmartFan] Working records'
+  issue_id: 122902
+  issue_name: '[SmartFan] Working records'
+  name: smartfan
+  project_id: 1289
+  project_name: SmartFAN AutoTest Assistant
+- activity_id: 9
+  comments: Grafana dashboards
+  issue_id: 132030
+  issue_name: Grafana dashboards
+  name: l11-dev
+  project_id: 1306
+  project_name: SKY Rack Mgmt Software

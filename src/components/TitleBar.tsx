@@ -1,10 +1,17 @@
 import React from 'react';
 
 const TitleBar = () => {
-    const handleClose = () => {
+    const handleMinimize = () => {
         if (window.require) {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('close-window');
+            ipcRenderer.send('minimize-to-tray');
+        }
+    };
+
+    const handleQuit = () => {
+        if (window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('quit-app');
         }
     };
 
@@ -24,29 +31,60 @@ const TitleBar = () => {
             <div style={{ paddingLeft: '15px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                 Redmine Tracker
             </div>
-            <div
-                onClick={handleClose}
-                style={{
-                    width: '40px',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    WebkitAppRegion: 'no-drag', // Clickable
-                    color: 'var(--text-secondary)',
-                    transition: 'background 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#e81123';
-                    e.currentTarget.style.color = 'white';
-                }}
-                onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                }}
-            >
-                ✕
+            <div style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag' }}>
+                {/* Minimize Button */}
+                <div
+                    onClick={handleMinimize}
+                    style={{
+                        width: '40px',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: 'var(--text-secondary)',
+                        transition: 'background 0.2s',
+                        fontSize: '14px'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+                        e.currentTarget.style.color = 'white';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                    }}
+                    title="Minimize to Tray"
+                >
+                    ─
+                </div>
+
+                {/* Close Button */}
+                <div
+                    onClick={handleQuit}
+                    style={{
+                        width: '40px',
+                        height: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: 'var(--text-secondary)',
+                        transition: 'background 0.2s',
+                        fontSize: '14px'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#e81123';
+                        e.currentTarget.style.color = 'white';
+                    }}
+                    onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                    }}
+                    title="Quit Application"
+                >
+                    ✕
+                </div>
             </div>
         </div>
     );

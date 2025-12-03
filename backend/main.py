@@ -56,7 +56,10 @@ class Settings(BaseModel):
     api_key: str
     redmine_url: Optional[str] = "http://advrm.advantech.com:3002/"
     alert_time: Optional[str] = "17:00"
+    alert_time: Optional[str] = "17:00"
     auto_log_time: Optional[str] = "18:00"
+    calendar_start_time: Optional[str] = "06:00"
+    calendar_end_time: Optional[str] = "21:00"
 
 # Global Redmine Instance
 redmine_client = None
@@ -120,7 +123,7 @@ def get_redmine_client():
             return None
     return None
 
-def update_cache_with_entry(entry_id):
+def update_cache_with_entry(entry_id, start_time=None):
     client = get_redmine_client()
     if not client:
         return
@@ -135,7 +138,7 @@ def update_cache_with_entry(entry_id):
         cache['time_entries'] = [e for e in cache['time_entries'] if e['id'] != entry_id]
         
         # Add new
-        cache['time_entries'].append({
+        new_entry = {
             "id": entry.id,
             "project": entry.project.name,
             "issue": entry.issue.id if hasattr(entry, 'issue') else None,
@@ -146,7 +149,12 @@ def update_cache_with_entry(entry_id):
             "spent_on": str(entry.spent_on),
             "created_on": str(entry.created_on),
             "updated_on": str(entry.updated_on)
-        })
+        }
+        
+        if start_time:
+            new_entry['start_time'] = start_time
+            
+        cache['time_entries'].append(new_entry)
         
         save_cache(cache)
     except Exception as e:
@@ -165,7 +173,10 @@ def save_settings(settings: Settings):
     data['api_key'] = settings.api_key
     data['redmine_url'] = settings.redmine_url
     data['alert_time'] = settings.alert_time
+    data['alert_time'] = settings.alert_time
     data['auto_log_time'] = settings.auto_log_time
+    data['calendar_start_time'] = settings.calendar_start_time
+    data['calendar_end_time'] = settings.calendar_end_time
     
     with open(CONFIG_FILE, 'w') as f:
         yaml.dump(data, f)
@@ -182,7 +193,10 @@ def get_settings():
         "api_key": data.get('api_key', ""),
         "redmine_url": data.get('redmine_url', "http://advrm.advantech.com:3002/"),
         "alert_time": data.get('alert_time', "17:00"),
-        "auto_log_time": data.get('auto_log_time', "18:00")
+        "alert_time": data.get('alert_time', "17:00"),
+        "auto_log_time": data.get('auto_log_time', "18:00"),
+        "calendar_start_time": data.get('calendar_start_time', "06:00"),
+        "calendar_end_time": data.get('calendar_end_time', "21:00")
     }
 
 class Profile(BaseModel):
@@ -338,7 +352,8 @@ def get_issue_details(issue_id: int):
                 "name": issue.project.name
             },
             "journals": journals,
-            "url": f"{client.url.rstrip('/')}/issues/{issue.id}"
+            "url": f"{client.url.rstrip('/')}/issues/{issue.id}",
+            "custom_fields": [{"id": cf.id, "name": cf.name, "value": cf.value} for cf in issue.custom_fields] if hasattr(issue, 'custom_fields') else []
         }
         
         # Update cache
@@ -414,6 +429,7 @@ class TimeEntry(BaseModel):
     activity_id: int
     rd_function_team: Optional[str] = "N/A"
     comments: Optional[str] = ""
+    start_time: Optional[str] = None
 
 @app.post("/api/redmine/time_entries")
 def create_time_entry(entry: TimeEntry):
@@ -448,7 +464,7 @@ def create_time_entry(entry: TimeEntry):
         created_entry = client.redmine.time_entry.create(**time_entry_data)
         
         # Update Cache
-        update_cache_with_entry(created_entry.id)
+        update_cache_with_entry(created_entry.id, start_time=entry.start_time)
         
         return {"status": "success", "message": "Time entry created", "id": created_entry.id}
     except Exception as e:
@@ -488,6 +504,7 @@ def get_time_entries(from_date: Optional[str] = None, to_date: Optional[str] = N
                 "id": entry.id,
                 "project": entry.project.name,
                 "issue": entry.issue.id if hasattr(entry, 'issue') else None,
+                "issue_subject": entry.issue.subject if hasattr(entry, 'issue') else None,
                 "user": entry.user.name,
                 "activity": entry.activity.name,
                 "hours": entry.hours,
@@ -499,8 +516,76 @@ def get_time_entries(from_date: Optional[str] = None, to_date: Optional[str] = N
             
         # We don't cache partial fetches here to avoid inconsistency.
         # Cache is populated by Sync.
+        return entry_list
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.put("/api/redmine/time_entries/{entry_id}")
+def update_time_entry(entry_id: int, entry: TimeEntry):
+    client = get_redmine_client()
+    if not client:
+        return {"error": "Redmine not configured"}
+    
+    try:
+        print(f"Updating time entry {entry_id}: {entry}")
+        
+        custom_field_id = 93
+        # Use provided value or default to N/A
+        custom_field_value = entry.rd_function_team if hasattr(entry, 'rd_function_team') and entry.rd_function_team else 'N/A'
+        
+        time_entry_data = {
+            'activity_id': entry.activity_id,
+            'hours': entry.hours,
+            'comments': entry.comments,
+            'custom_fields': [{'id': custom_field_id, 'value': custom_field_value}]
+        }
+        
+        # Only update project/issue if strictly necessary/supported by Redmine API for that entry type
+        # Redmine allows moving entries between projects/issues usually.
+        if entry.issue_id:
+            time_entry_data['issue_id'] = entry.issue_id
+            time_entry_data['project_id'] = None # Clear project if issue is set
+        elif entry.project_id:
+            time_entry_data['project_id'] = entry.project_id
+            time_entry_data['issue_id'] = None # Clear issue if project is set
+            
+        # Note: 'spent_on' is also updatable
+        time_entry_data['spent_on'] = entry.spent_on
+            
+        client.redmine.time_entry.update(entry_id, **time_entry_data)
+        
+        # Update Cache
+        update_cache_with_entry(entry_id, start_time=entry.start_time)
+        
+        return {"status": "success", "message": "Time entry updated"}
+    except Exception as e:
+        print(f"Error updating time entry: {e}")
+        if "Requested resource doesn't exist" in str(e):
+            # Treat as success (entry gone), remove from cache
+            remove_from_cache(entry_id)
+            return {"status": "success", "message": "Entry not found in Redmine, removed locally"}
+        return {"error": str(e)}
+
+@app.delete("/api/redmine/time_entries/{entry_id}")
+def delete_time_entry(entry_id: int):
+    client = get_redmine_client()
+    if not client:
+        return {"error": "Redmine not configured"}
+    
+    try:
+        print(f"Deleting time entry {entry_id}")
+        client.redmine.time_entry.delete(entry_id)
+        
+        # Remove from Cache
+        remove_from_cache(entry_id)
+        
         return {"status": "success", "message": "Time entry deleted"}
     except Exception as e:
+        print(f"Error deleting time entry: {e}")
+        if "Requested resource doesn't exist" in str(e):
+            # Treat as success (entry gone), remove from cache
+            remove_from_cache(entry_id)
+            return {"status": "success", "message": "Entry not found in Redmine, removed locally"}
         return {"error": str(e)}
 
 # --- Daily Planner Endpoints ---
@@ -513,123 +598,175 @@ class Task(BaseModel):
     redmine_issue_id: Optional[int] = None
     planned_hours: float = 0.0
     is_logged: bool = False
+    is_paused: bool = False # New field for pause state
+    date: str # YYYY-MM-DD
     last_logged_date: Optional[str] = None # YYYY-MM-DD
     time_entry_id: Optional[int] = None # Added for deletion support
     activity_id: Optional[int] = None
     rd_function_team: Optional[str] = "N/A"
     comments: Optional[str] = ""
+    project_id: Optional[int] = None
 
 def load_tasks_data():
     if os.path.exists(TASKS_FILE):
         with open(TASKS_FILE, 'r') as f:
             try:
-                return json.load(f) or []
-            except:
-                return []
-    return []
+                data = json.load(f)
+                if isinstance(data, list):
+                    print("Migrating tasks.json from List to Dict...")
+                    # Migration: Convert list to dict
+                    new_data = {}
+                    for task in data:
+                        # Use redmine_issue_id as key if available, else UUID
+                        if task.get('redmine_issue_id'):
+                            task_id = str(task.get('redmine_issue_id'))
+                            task['id'] = task_id # Ensure ID matches key
+                        else:
+                            task_id = task.get('id')
+                            if not task_id: continue 
+                        
+                        # Clear date as requested (static profile)
+                        task['date'] = None
+                        
+                        # Reset transient state
+                        task['is_logged'] = False
+                        
+                        new_data[task_id] = task
+                    
+                    # Save immediately
+                    save_tasks_data(new_data)
+                    return new_data
+                
+                # Check for Dictionary migration (ensure keys match redmine_issue_id)
+                if isinstance(data, dict):
+                    migrated = False
+                    new_data = {}
+                    for key, task in data.items():
+                        # If task has issue ID but key is not it, migrate
+                        if task.get('redmine_issue_id') and str(task.get('redmine_issue_id')) != key:
+                            print(f"Migrating task {key} to issue ID key {task.get('redmine_issue_id')}")
+                            new_key = str(task.get('redmine_issue_id'))
+                            task['id'] = new_key
+                            new_data[new_key] = task
+                            migrated = True
+                        else:
+                            new_data[key] = task
+                    
+                    if migrated:
+                        save_tasks_data(new_data)
+                        return new_data
+                        
+                return data or {}
+            except Exception as e:
+                print(f"Error loading tasks: {e}")
+                return {}
+    return {}
 
 def save_tasks_data(tasks):
     with open(TASKS_FILE, 'w') as f:
         json.dump(tasks, f, indent=2)
 
 @app.get("/api/tasks")
-def get_tasks(date_str: Optional[str] = None):
-    all_tasks = load_tasks_data()
+def get_tasks(date_str: Optional[str] = None, no_auto_copy: bool = False):
+    tasks_data = load_tasks_data() # Returns Dict
     
     # Default to today if not provided
     if not date_str:
         from datetime import date
         date_str = str(date.today())
         
-    # Filter for requested date
-    todays_tasks = [t for t in all_tasks if t.get('date') == date_str]
-    
-    # Auto-copy logic: If today is empty, try to copy from previous available day
-    from datetime import date
-    today = str(date.today())
-    
-    if date_str == today and not todays_tasks:
-        # Find most recent date with tasks
-        # Sort tasks by date descending
-        sorted_tasks = sorted(all_tasks, key=lambda x: x.get('date', ''), reverse=True)
+    task_list = []
+    for task_id, task in tasks_data.items():
+        # Create a copy for the response so we don't mutate storage
+        t = task.copy()
         
-        most_recent_date = None
-        for t in sorted_tasks:
-            t_date = t.get('date')
-            if t_date and t_date < today:
-                most_recent_date = t_date
-                break
-        
-        if most_recent_date:
-            print(f"Auto-copying tasks from {most_recent_date} to {today}")
-            source_tasks = [t for t in all_tasks if t.get('date') == most_recent_date]
+        # Calculate is_logged based on last_logged_date
+        if t.get('last_logged_date') == date_str:
+            t['is_logged'] = True
+        else:
+            t['is_logged'] = False
+            # If not logged today, clear the time_entry_id from the response
+            # so the frontend doesn't try to delete a past entry
+            t['time_entry_id'] = None
             
-            import uuid
-            new_tasks = []
-            for t in source_tasks:
-                new_task = t.copy()
-                new_task['id'] = str(uuid.uuid4())
-                new_task['date'] = today
-                new_task['is_logged'] = False
-                new_task['last_logged_date'] = None
-                new_task['time_entry_id'] = None
-                new_tasks.append(new_task)
-                
-            all_tasks.extend(new_tasks)
-            save_tasks_data(all_tasks)
-            todays_tasks = new_tasks
-
-    return todays_tasks
+        # Set the date to the requested date (for frontend context)
+        t['date'] = date_str
+        
+        task_list.append(t)
+        
+    # Sort by name or some other criteria if needed
+    # For now, just return the list
+    return task_list
 
 @app.post("/api/tasks")
 def create_task(task: Task):
-    all_tasks = load_tasks_data()
-    # Check if ID exists, if so update, else append
-    existing = next((t for t in all_tasks if t['id'] == task.id), None)
-    if existing:
-        existing.update(task.dict())
-    else:
-        all_tasks.append(task.dict())
+    all_tasks = load_tasks_data() # Dict
+    
+    # Determine Key
+    if task.redmine_issue_id:
+        task.id = str(task.redmine_issue_id)
+    
+    # Store as static profile
+    task_dict = task.dict()
+    task_dict['date'] = None # Ensure date is null in storage
+    
+    # If key exists, we overwrite (update)
+    all_tasks[task.id] = task_dict
+    
     save_tasks_data(all_tasks)
     return {"status": "success", "message": "Task saved", "task": task}
 
 @app.put("/api/tasks/{task_id}")
 def update_task(task_id: str, task: Task):
-    all_tasks = load_tasks_data()
-    existing = next((t for t in all_tasks if t['id'] == task_id), None)
-    if existing:
-        existing.update(task.dict())
-        save_tasks_data(all_tasks)
-        return {"status": "success", "message": "Task updated"}
-    return {"error": "Task not found"}
+    all_tasks = load_tasks_data() # Dict
+    
+    # Check if we need to migrate key (e.g. user added issue ID)
+    new_key = task_id
+    if task.redmine_issue_id:
+        new_key = str(task.redmine_issue_id)
+        task.id = new_key
+        
+    # If key changed, remove old
+    if new_key != task_id and task_id in all_tasks:
+        del all_tasks[task_id]
+        
+    updated_data = task.dict()
+    updated_data['date'] = None # Ensure date is null
+    
+    all_tasks[new_key] = updated_data
+    save_tasks_data(all_tasks)
+    return {"status": "success", "message": "Task updated"}
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str, delete_from_redmine: bool = False):
-    all_tasks = load_tasks_data()
+    all_tasks = load_tasks_data() # Dict
     
-    # Find task to check for time_entry_id
-    task_to_delete = next((t for t in all_tasks if t['id'] == task_id), None)
-    
-    if delete_from_redmine and task_to_delete and task_to_delete.get('time_entry_id'):
-        client = get_redmine_client()
-        if client:
-            try:
-                client.redmine.time_entry.delete(task_to_delete['time_entry_id'])
-                print(f"Deleted Redmine time entry {task_to_delete['time_entry_id']}")
-            except Exception as e:
-                print(f"Failed to delete Redmine time entry: {e}")
+    if task_id in all_tasks:
+        task_to_delete = all_tasks[task_id]
+        
+        if delete_from_redmine and task_to_delete.get('time_entry_id'):
+            client = get_redmine_client()
+            if client:
+                try:
+                    client.redmine.time_entry.delete(task_to_delete['time_entry_id'])
+                    print(f"Deleted Redmine time entry {task_to_delete['time_entry_id']}")
+                except Exception as e:
+                    print(f"Failed to delete Redmine time entry: {e}")
 
-    all_tasks = [t for t in all_tasks if t['id'] != task_id]
-    save_tasks_data(all_tasks)
-    return {"status": "success", "message": "Task deleted"}
+        del all_tasks[task_id]
+        save_tasks_data(all_tasks)
+        return {"status": "success", "message": "Task deleted"}
+    return {"error": "Task not found"}
 
 @app.post("/api/planner/log_batch")
 def log_batch(tasks: List[Task]):
+    print(f"DEBUG: Received {len(tasks)} tasks to log")
     client = get_redmine_client()
     if not client:
+        print("DEBUG: Redmine client not initialized")
         return {"error": "Redmine not configured"}
     
-    all_tasks = load_tasks_data()
+    all_tasks = load_tasks_data() # Dict
     logged_count = 0
     errors = []
     
@@ -637,8 +774,10 @@ def log_batch(tasks: List[Task]):
     today_str = str(date.today())
 
     for task in tasks:
-        # Skip if already logged TODAY or no hours
-        if task.last_logged_date == today_str or task.planned_hours <= 0:
+        print(f"DEBUG: Processing task: {task.name}, Issue ID: {task.redmine_issue_id}, Project ID: {task.project_id}")
+        # Skip if no hours or if paused
+        if task.planned_hours <= 0 or task.is_paused:
+            print(f"DEBUG: Skipping task {task.name} (Hours: {task.planned_hours}, Paused: {task.is_paused})")
             continue
             
         try:
@@ -653,23 +792,29 @@ def log_batch(tasks: List[Task]):
             rd_function_team = task.rd_function_team if task.rd_function_team else 'N/A'
             
             time_entry_data = {
-                'issue_id': task.redmine_issue_id,
                 'hours': task.planned_hours,
                 'activity_id': activity_id,
                 'comments': comments,
-                'spent_on': today_str,
+                'spent_on': today_str, # Always log for today
                 'custom_fields': [{'id': 93, 'value': rd_function_team}]
             }
+
+            if task.redmine_issue_id:
+                time_entry_data['issue_id'] = task.redmine_issue_id
+                print(f"DEBUG: Logging with Issue ID: {task.redmine_issue_id}")
+            elif task.project_id:
+                time_entry_data['project_id'] = task.project_id
+                print(f"DEBUG: Logging with Project ID: {task.project_id}")
+            else:
+                print("DEBUG: Missing Issue ID and Project ID")
+                raise Exception("Task has no Issue ID and no Project ID. Cannot log.")
             
             created_entry = client.redmine.time_entry.create(**time_entry_data)
             
             # Update local task status
-            # Find in all_tasks and update
-            for t in all_tasks:
-                if t['id'] == task.id:
-                    t['last_logged_date'] = today_str
-                    t['time_entry_id'] = created_entry.id # Save ID
-                    break
+            if task.id in all_tasks:
+                all_tasks[task.id]['last_logged_date'] = today_str
+                all_tasks[task.id]['time_entry_id'] = created_entry.id
             
             logged_count += 1
             
@@ -742,6 +887,14 @@ def sync_data():
         # 4. Sync Time Entries (Recent - e.g., last 30 days)
         print("Syncing time entries...")
         from datetime import date, timedelta
+        
+        # Preserve start_time from existing cache
+        existing_start_times = {}
+        if 'time_entries' in cache:
+            for e in cache['time_entries']:
+                if 'start_time' in e:
+                    existing_start_times[e['id']] = e['start_time']
+        
         today = date.today()
         start_date = today - timedelta(days=30)
         
@@ -750,18 +903,27 @@ def sync_data():
         
         entry_list = []
         for entry in entries:
-            entry_list.append({
+            new_entry_dict = {
                 "id": entry.id,
                 "project": entry.project.name,
+                "project_id": entry.project.id,
                 "issue": entry.issue.id if hasattr(entry, 'issue') else None,
                 "user": entry.user.name,
                 "activity": entry.activity.name,
+                "activity_id": entry.activity.id,
                 "hours": entry.hours,
                 "comments": entry.comments,
                 "spent_on": str(entry.spent_on),
                 "created_on": str(entry.created_on),
                 "updated_on": str(entry.updated_on)
-            })
+            }
+            
+            # Restore start_time if it existed
+            if entry.id in existing_start_times:
+                new_entry_dict['start_time'] = existing_start_times[entry.id]
+                
+            entry_list.append(new_entry_dict)
+            
         cache['time_entries'] = entry_list
         
         save_cache(cache)
@@ -770,6 +932,42 @@ def sync_data():
     except Exception as e:
         print(f"Sync failed: {e}")
         return {"error": str(e)}
+
+@app.get("/api/task_history")
+def get_task_history():
+    all_tasks = load_tasks_data() # Dict
+    # Return unique tasks by name
+    seen_names = set()
+    unique_tasks = []
+    
+    # Sort by date descending to get most recent first
+    # Iterate over values since all_tasks is a dict
+    sorted_tasks = sorted(all_tasks.values(), key=lambda x: x.get('date') or '', reverse=True)
+    
+    for task in sorted_tasks:
+        name = task.get('name')
+        if name and name not in seen_names:
+            seen_names.add(name)
+            unique_tasks.append(task)
+            
+    return unique_tasks
+
+@app.delete("/api/task_history")
+def delete_task_history(name: str):
+    print(f"Deleting history for task name: {name}")
+    all_tasks = load_tasks_data() # Dict
+    
+    # Identify IDs to remove
+    ids_to_remove = [tid for tid, t in all_tasks.items() if t.get('name') == name]
+    
+    if not ids_to_remove:
+        return {"error": "Task not found in history"}
+        
+    for tid in ids_to_remove:
+        del all_tasks[tid]
+        
+    save_tasks_data(all_tasks)
+    return {"status": "success", "message": f"Deleted history for '{name}'"}
 
 
 

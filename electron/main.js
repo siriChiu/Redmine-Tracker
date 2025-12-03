@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 
@@ -6,6 +6,8 @@ const isDev = !app.isPackaged;
 
 let mainWindow;
 let pythonProcess;
+let tray;
+let isQuitting = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -44,6 +46,14 @@ function createWindow() {
     return { action: 'deny' };
   });
 
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+      return false;
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -71,6 +81,17 @@ ipcMain.on('set-window-bounds', (event, bounds) => {
   }
 });
 
+ipcMain.on('minimize-to-tray', () => {
+  if (mainWindow) {
+    mainWindow.hide();
+  }
+});
+
+ipcMain.on('quit-app', () => {
+  isQuitting = true;
+  app.quit();
+});
+
 function startPythonBackend() {
   if (isDev) return; // In dev, concurrently handles it
 
@@ -93,11 +114,40 @@ function startPythonBackend() {
   });
 }
 
+function createTray() {
+  const iconPath = path.join(__dirname, 'tray_icon.png');
+  const icon = nativeImage.createFromPath(iconPath);
+  tray = new Tray(icon);
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show App', click: () => mainWindow.show() },
+    { type: 'separator' },
+    {
+      label: 'Quit', click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setToolTip('Redmine Tracker');
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (mainWindow.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow.show();
+    }
+  });
+}
+
 app.on('ready', () => {
   if (!isDev) {
     startPythonBackend();
   }
   createWindow();
+  createTray();
 });
 
 app.on('window-all-closed', () => {

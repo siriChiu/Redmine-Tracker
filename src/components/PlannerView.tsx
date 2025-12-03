@@ -304,7 +304,7 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
         if (!confirmed) return;
 
         // Append timestamp to comment
-        const nowTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+        // const nowTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
         const taskToLog = {
             ...task,
             comments: task.comments ? `${task.comments}` : `${task.name}`
@@ -478,7 +478,7 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
             }
 
             // Append timestamp to comments for auto-log
-            const nowTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+            // const nowTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
             const tasksToLog = unloggedTasks.map(t => ({
                 ...t,
                 comments: t.comments ? `${t.comments}` : `${t.name}`

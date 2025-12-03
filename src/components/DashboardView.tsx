@@ -12,7 +12,7 @@ const DashboardView = () => {
     const [dailyHours, setDailyHours] = useState(0);
     const [weeklyHours, setWeeklyHours] = useState(0);
     const [dailyBreakdown, setDailyBreakdown] = useState<number[]>([0, 0, 0, 0, 0]); // Mon-Fri
-    const [loading, setLoading] = useState(true);
+    const [, setLoading] = useState(true);
     const [todaysTasks, setTodaysTasks] = useState<Task[]>([]);
     const [showConfetti, setShowConfetti] = useState(false);
     const [issueBreakdown, setIssueBreakdown] = useState<{ name: string; hours: number; percentage: number; color: string }[]>([]);

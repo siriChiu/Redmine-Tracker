@@ -92,25 +92,45 @@ ipcMain.on('quit-app', () => {
   app.quit();
 });
 
+const fs = require('fs');
+
+function logToFile(message) {
+  const logDir = path.join(process.env.APPDATA, 'RedmineTracker');
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true });
+  }
+  const logPath = path.join(logDir, 'electron_main.log');
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+}
+
 function startPythonBackend() {
   if (isDev) return; // In dev, concurrently handles it
 
-  // Updated path for --onedir build (inside a folder)
-  let scriptPath = path.join(__dirname, '../backend/dist/backend/backend.exe');
+  // Updated path for --onefile build
+  let scriptPath = path.join(__dirname, '../backend/dist/backend.exe');
   scriptPath = scriptPath.replace('app.asar', 'app.asar.unpacked');
 
-  console.log(`Starting Backend Executable: ${scriptPath}`);
+  logToFile(`Starting Backend Executable: ${scriptPath}`);
 
   pythonProcess = spawn(scriptPath, [], {
-    stdio: 'inherit'
+    stdio: 'pipe' // Capture stdout/stderr
+  });
+
+  pythonProcess.stdout.on('data', (data) => {
+    logToFile(`Backend STDOUT: ${data}`);
+  });
+
+  pythonProcess.stderr.on('data', (data) => {
+    logToFile(`Backend STDERR: ${data}`);
   });
 
   pythonProcess.on('error', (err) => {
-    console.error('Failed to start Python backend:', err);
+    logToFile(`Failed to start Python backend: ${err}`);
   });
 
   pythonProcess.on('close', (code) => {
-    console.log(`Python backend exited with code ${code}`);
+    logToFile(`Python backend exited with code ${code}`);
   });
 }
 
@@ -153,7 +173,11 @@ app.on('ready', () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     if (pythonProcess) {
-      pythonProcess.kill();
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', pythonProcess.pid, '/f', '/t']);
+      } else {
+        pythonProcess.kill();
+      }
     }
     app.exit(0);
   }
@@ -161,7 +185,11 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   if (pythonProcess) {
-    pythonProcess.kill();
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', pythonProcess.pid, '/f', '/t']);
+    } else {
+      pythonProcess.kill();
+    }
   }
 });
 

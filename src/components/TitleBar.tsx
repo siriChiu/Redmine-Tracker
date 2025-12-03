@@ -31,7 +31,7 @@ const TitleBar = () => {
             <div style={{ paddingLeft: '15px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>
                 Redmine Tracker
             </div>
-            <div style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag' }}>
+            <div style={{ display: 'flex', height: '100%', WebkitAppRegion: 'no-drag' } as any}>
                 {/* Minimize Button */}
                 <div
                     onClick={handleMinimize}

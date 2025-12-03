@@ -7,6 +7,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 import yaml
 import json
+from datetime import datetime
+import signal
 
 # Import the existing Redmine utility
 # Adjust path if necessary since we moved files
@@ -84,8 +86,12 @@ print(f"Data Directory: {DATA_DIR}")
 
 def load_settings_data():
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return yaml.safe_load(f) or {}
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return yaml.safe_load(f) or {}
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+            return {}
     return {}
 
 def load_api_key():
@@ -168,23 +174,32 @@ def remove_from_cache(entry_id):
 
 @app.post("/api/settings")
 def save_settings(settings: Settings):
-    data = load_settings_data()
-            
-    data['api_key'] = settings.api_key
-    data['redmine_url'] = settings.redmine_url
-    data['alert_time'] = settings.alert_time
-    data['alert_time'] = settings.alert_time
-    data['auto_log_time'] = settings.auto_log_time
-    data['calendar_start_time'] = settings.calendar_start_time
-    data['calendar_end_time'] = settings.calendar_end_time
-    
-    with open(CONFIG_FILE, 'w') as f:
-        yaml.dump(data, f)
-    
-    # Re-init client
-    global redmine_client
-    redmine_client = rm.Redmine(settings.api_key, settings.redmine_url)
-    return {"status": "success", "message": "Settings saved"}
+    try:
+        data = load_settings_data()
+                
+        data['api_key'] = settings.api_key
+        data['redmine_url'] = settings.redmine_url
+        data['alert_time'] = settings.alert_time
+        data['auto_log_time'] = settings.auto_log_time
+        data['calendar_start_time'] = settings.calendar_start_time
+        data['calendar_end_time'] = settings.calendar_end_time
+        
+        with open(CONFIG_FILE, 'w') as f:
+            yaml.dump(data, f)
+        
+        # Re-init client
+        global redmine_client
+        try:
+            redmine_client = rm.Redmine(settings.api_key, settings.redmine_url)
+        except Exception as e:
+            print(f"Warning: Failed to re-init Redmine client: {e}")
+            # We still return success because settings were saved
+            return {"status": "success", "message": "Settings saved (Redmine connection failed)"}
+
+        return {"status": "success", "message": "Settings saved"}
+    except Exception as e:
+        print(f"Error saving settings: {e}")
+        return {"error": str(e)}
 
 @app.get("/api/settings")
 def get_settings():
@@ -976,7 +991,35 @@ for route in app.routes:
     print(f"Route: {route.path} {route.methods}")
 
 if __name__ == "__main__":
+    # Handle signals for graceful shutdown
+    def signal_handler(sig, frame):
+        print(f"[{datetime.now()}] Received signal {sig}, exiting...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     port = 8000
-    # Enable reload for development
-    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
-    # Force reload check
+    
+    # Check if running in frozen mode (PyInstaller)
+    if getattr(sys, 'frozen', False):
+        try:
+            print(f"[{datetime.now()}] Starting backend in frozen mode (stdout)", flush=True)
+            
+            # Run uvicorn with app instance directly to avoid import errors in frozen mode
+            # log_config=None prevents uvicorn from configuring logging (avoiding isatty check)
+            # Explicitly set loop and http to avoid auto-detection failures
+            uvicorn.run(app, host="127.0.0.1", port=port, reload=False, log_config=None, loop="asyncio", http="h11")
+            
+            print(f"[{datetime.now()}] Uvicorn returned normally", flush=True)
+            
+        except (Exception, SystemExit) as e:
+            print(f"CRASH: {e}", flush=True)
+            if "Errno 10048" in str(e):
+                print("\nCRITICAL ERROR: PORT 8000 IS BUSY", flush=True)
+                print("Please close other instances of Redmine Tracker or kill 'backend.exe' / 'python.exe' in Task Manager.\n", flush=True)
+            import traceback
+            traceback.print_exc()
+    else:
+        # Enable reload for development
+        uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)

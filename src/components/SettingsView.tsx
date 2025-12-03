@@ -198,7 +198,7 @@ const SettingsView = () => {
                 setStatus(data.message);
                 addToast("Settings saved", 'success');
             })
-            .catch(err => {
+            .catch(() => {
                 setStatus('Error saving settings');
                 addToast("Error saving settings", 'error');
             });

@@ -25,7 +25,7 @@ const Sidebar = () => {
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            padding: '10px 0',
+            padding: '10px 0 100px 0',
             backgroundColor: 'rgba(30, 30, 36, 0.3)', // Subtle background
             borderRight: '1px solid var(--glass-border)',
             zIndex: 100
@@ -46,7 +46,7 @@ const Sidebar = () => {
 
             <div style={{ flex: 1 }}></div>
 
-            <NavLink to="/settings" style={linkStyle} title="Settings">
+            <NavLink to="/settings" style={({ isActive }) => ({ ...linkStyle({ isActive }), marginBottom: '20px' })} title="Settings">
                 <span className="icon">⚙️</span>
             </NavLink>
         </div>

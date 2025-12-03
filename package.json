@@ -10,8 +10,10 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "build:backend": ".\\.venv\\Scripts\\python.exe -m PyInstaller --noconsole --name backend --onefile --distpath backend/dist --workpath backend/build --specpath backend backend/main.py",
-    "dist": "npm run build:backend && npm run build && electron-builder"
+    "build:backend": ".\\.venv\\Scripts\\python.exe -m PyInstaller --noconsole --name backend --onefile --distpath backend/dist --workpath backend/build --specpath backend --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.asyncio --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.h11 --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on --hidden-import=engineio.async_drivers.threading --hidden-import=h11 --hidden-import=starlette --hidden-import=email --hidden-import=http --hidden-import=wsgiref --hidden-import=xml backend/main.py",
+    "build:backend:debug": ".\\.venv\\Scripts\\python.exe -m PyInstaller --name backend --onefile --distpath backend/dist --workpath backend/build --specpath backend --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.asyncio --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.h11 --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on --hidden-import=engineio.async_drivers.threading --hidden-import=h11 --hidden-import=starlette --hidden-import=email --hidden-import=http --hidden-import=wsgiref --hidden-import=xml backend/main.py",
+    "dist": "npm run build:backend && npm run build && electron-builder",
+    "dist:debug": "npm run build:backend:debug && npm run build && electron-builder"
   },
   "build": {
     "appId": "com.redmine.tracker",

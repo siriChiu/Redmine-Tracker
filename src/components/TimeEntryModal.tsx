@@ -22,7 +22,7 @@ const TimeEntryModal: React.FC<TimeEntryModalProps> = ({ isOpen, onClose, onSave
     const [selectedProfile, setSelectedProfile] = useState('');
 
     const [projects, setProjects] = useState<any[]>([]);
-    const [activities, setActivities] = useState<any>({});
+    const [, setActivities] = useState<any>({});
     const [profiles, setProfiles] = useState<any[]>([]);
 
     // UI State

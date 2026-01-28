@@ -281,37 +281,28 @@ def get_projects():
         return {"error": str(e)}
 
 @app.get("/api/redmine/issues")
-def get_issues(project_id: str, scope: str = "me"):
-    # Try cache first (only for 'me' scope as that's what we sync)
-    if scope == "me":
-        cache = load_cache()
-        if 'issues' in cache:
-            # Filter cached issues by project_id
-            try:
-                pid = int(project_id)
-                cached_issues = [i for i in cache['issues'] if i.get('project_id') == pid]
-                return sorted(cached_issues, key=lambda x: x['subject'])
-            except ValueError:
-                pass
-
+def get_issues(project_id: Optional[str] = None, assigned_to_id: Optional[str] = None, status_id: Optional[str] = 'open', limit: int = 100):
     client = get_redmine_client()
     if not client:
         return {"error": "Redmine not configured"}
     
     try:
-        # Fallback to API if not in cache or scope is 'all'
-        
-        # If scope is 'me', filter by assigned_to_id='me'
-        # If scope is 'all', do not filter by assigned_to
-        filters = {'project_id': project_id, 'status_id': 'open'}
-        if scope == "me":
-            filters['assigned_to_id'] = 'me'
+        filters = {}
+        if project_id:
+            filters['project_id'] = project_id
+        if assigned_to_id:
+            filters['assigned_to_id'] = assigned_to_id
+        if status_id:
+            filters['status_id'] = status_id
+            
+        filters['limit'] = limit
             
         issues = client.redmine.issue.filter(**filters)
-        issue_list = [{"id": i.id, "subject": i.subject, "project_id": i.project.id} for i in issues]
+        issue_list = [{"id": i.id, "subject": i.subject, "project_id": i.project.id, "project": {"id": i.project.id, "name": i.project.name}, "priority": {"id": i.priority.id, "name": i.priority.name} if hasattr(i, 'priority') else None, "status": {"id": i.status.id, "name": i.status.name}, "due_date": str(i.due_date) if hasattr(i, 'due_date') else None} for i in issues]
         
         return sorted(issue_list, key=lambda x: x['subject'])
     except Exception as e:
+        print(f"Error fetching issues: {e}")
         return {"error": str(e)}
 
 @app.get("/api/redmine/issue/{issue_id}")

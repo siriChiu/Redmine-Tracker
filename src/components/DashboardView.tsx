@@ -20,14 +20,18 @@ const DashboardView = () => {
     // New State for Breakdown Mode and Raw Data
     const [breakdownMode, setBreakdownMode] = useState<'issue' | 'comment'>('issue');
     const [weeklyEntries, setWeeklyEntries] = useState<any[]>([]);
+    const [weekOffset, setWeekOffset] = useState(0); // 0 = current week, -1 = previous, etc.
 
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'];
 
     useEffect(() => {
         fetchDailyHours();
-        fetchWeeklyStats();
         fetchTodaysTasks();
     }, []);
+
+    useEffect(() => {
+        fetchWeeklyStats();
+    }, [weekOffset]);
 
     useEffect(() => {
         if (dailyHours >= 8.0) {
@@ -81,6 +85,9 @@ const DashboardView = () => {
 
     const getWeekRange = () => {
         const now = new Date();
+        // Adjust for offset
+        now.setDate(now.getDate() + (weekOffset * 7));
+
         const day = now.getDay(); // 0 is Sunday
         const diff = now.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
         const monday = new Date(now.setDate(diff));
@@ -88,7 +95,9 @@ const DashboardView = () => {
 
         return {
             start: monday.toISOString().split('T')[0],
-            end: sunday.toISOString().split('T')[0]
+            end: sunday.toISOString().split('T')[0],
+            monday,
+            sunday
         };
     };
 
@@ -230,9 +239,34 @@ const DashboardView = () => {
                 <div className="glass-panel" style={{ padding: '40px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '40px' }}>
                         <div>
-                            <h3 style={{ margin: '0 0 5px 0', color: 'var(--text-secondary)', fontSize: '1.1em', fontWeight: 500 }}>
-                                Weekly Overview
-                            </h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '5px' }}>
+                                <h3 style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '1.1em', fontWeight: 500 }}>
+                                    Weekly Overview
+                                </h3>
+                                {/* Week Navigation */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(255,255,255,0.05)', borderRadius: '20px', padding: '2px 8px' }}>
+                                    <button
+                                        onClick={() => setWeekOffset(prev => prev - 1)}
+                                        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '1.0em', padding: '0 4px' }}
+                                    >
+                                        ‹
+                                    </button>
+                                    <span style={{ fontSize: '0.8em', color: '#aaa', whiteSpace: 'nowrap' }}>
+                                        {(() => {
+                                            const { monday, sunday } = getWeekRange();
+                                            const formatDate = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                                            return `${formatDate(monday)} - ${formatDate(sunday)}`;
+                                        })()}
+                                    </span>
+                                    <button
+                                        onClick={() => setWeekOffset(prev => prev + 1)}
+                                        disabled={weekOffset === 0}
+                                        style={{ background: 'none', border: 'none', color: weekOffset === 0 ? 'rgba(255,255,255,0.1)' : 'var(--text-secondary)', cursor: weekOffset === 0 ? 'default' : 'pointer', fontSize: '1.0em', padding: '0 4px' }}
+                                    >
+                                        ›
+                                    </button>
+                                </div>
+                            </div>
                             <div style={{ fontSize: '2.5em', fontWeight: 700, color: 'white' }}>
                                 {weeklyHours.toFixed(1)} <span style={{ fontSize: '0.5em', color: 'var(--text-secondary)', fontWeight: 400 }}>hrs total</span>
                             </div>

@@ -506,291 +506,324 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
     };
 
     return (
-        <div style={{ padding: '20px', color: 'white', height: '100%', display: 'flex', flexDirection: 'column', maxWidth: '800px', margin: '0 auto', boxSizing: 'border-box' }}>
-            <ToastContainer toasts={toasts} removeToast={removeToast} />
-            <ConfirmModal
-                isOpen={confirmModal.isOpen}
-                message={confirmModal.message}
-                title={confirmModal.title}
-                onConfirm={confirmModal.onConfirm}
-                onCancel={handleConfirmCancel}
-            />
-            {/* Header Area */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '15px', gap: '10px', flexShrink: 0 }}>
-                <div style={{ textAlign: 'center' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.8em', background: 'var(--accent-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Daily Planner</h2>
-                    <div style={{ fontSize: '0.9em', color: 'var(--text-secondary)', marginTop: '5px' }}>
-                        {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </div>
-                </div>
-
-                {/* Quick Settings Bar */}
-                <div className="glass-panel" style={{ padding: '8px 15px', display: 'flex', gap: '15px', alignItems: 'center', borderRadius: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>Alert:</span>
-                        <input
-                            type="time"
-                            value={alertTime}
-                            onChange={(e) => setAlertTime(e.target.value)}
-                            onBlur={handleSaveSettings}
-                            style={{ background: 'transparent', border: 'none', color: 'white', fontFamily: 'inherit', fontSize: '0.9em', cursor: 'pointer' }}
-                        />
-                    </div>
-                    <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.1)' }}></div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>Auto-Log:</span>
-                        <input
-                            type="time"
-                            value={autoLogTime}
-                            onChange={(e) => setAutoLogTime(e.target.value)}
-                            onBlur={handleSaveSettings}
-                            style={{ background: 'transparent', border: 'none', color: 'white', fontFamily: 'inherit', fontSize: '0.9em', cursor: 'pointer' }}
-                        />
-                    </div>
-
-                </div>
-            </div>
-
-            {/* Task Entry Bar */}
-            <div className="glass-panel" style={{ padding: '15px', marginBottom: '20px', display: 'flex', gap: '15px', alignItems: 'center', flexShrink: 0 }}>
-                <div style={{ flex: 1, display: 'flex', gap: '10px' }}>
-                    <select
-                        onChange={(e) => {
-                            handleProfileSelect(e.target.value);
-                            // Keep the value selected so we can delete it
-                            // e.target.value = ""; 
-                        }}
-                        value={selectedProfileName}
-                        style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', backgroundColor: 'rgba(0,0,0,0.2)', color: 'white' }}
-                    >
-                        <option value="" disabled>Load Saved Task...</option>
-                        {profiles.map((p: any) => <option key={p.name} value={p.name}>{p.name}</option>)}
-                    </select>
-                    {selectedProfileName && (
-                        <button
-                            onClick={handleDeleteHistoryItem}
-                            style={{
-                                background: 'rgba(244, 67, 54, 0.1)',
-                                border: '1px solid rgba(244, 67, 54, 0.3)',
-                                color: '#f44336',
-                                borderRadius: '8px',
-                                padding: '0 15px',
-                                cursor: 'pointer',
-                                fontSize: '1.2em'
-                            }}
-                            title="Delete Saved Task"
-                        >
-                            🗑️
-                        </button>
-                    )}
-                </div>
-
-                <div style={{ width: '80px' }}>
-                    <input
-                        type="number"
-                        placeholder="Hrs"
-                        value={newHours}
-                        onChange={(e) => setNewHours(e.target.value)}
-                        step="0.5"
-                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', textAlign: 'center' }}
-                    />
-                </div>
-
-                <button
-                    onClick={handleAddTask}
-                    style={{
-                        padding: '10px 20px',
-                        backgroundColor: 'var(--primary)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontWeight: 'bold',
-                        boxShadow: '0 4px 15px rgba(100, 108, 255, 0.3)'
-                    }}
-                >
-                    Add
-                </button>
-            </div>
-
-            {/* Task List */}
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px', minHeight: 0 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                    {tasks.length === 0 && (
-                        <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', border: '2px dashed var(--glass-border)', borderRadius: '12px' }}>
-                            No tasks planned for today. Start by adding one above!
+        <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            overflow: 'hidden',
+            display: 'flex',
+            justifyContent: 'center'
+        }}>
+            <div style={{
+                padding: '20px',
+                color: 'white',
+                height: '100%',
+                width: '100%',
+                maxWidth: '800px',
+                display: 'flex',
+                flexDirection: 'column',
+                boxSizing: 'border-box'
+            }}>
+                <ToastContainer toasts={toasts} removeToast={removeToast} />
+                <ConfirmModal
+                    isOpen={confirmModal.isOpen}
+                    message={confirmModal.message}
+                    title={confirmModal.title}
+                    onConfirm={confirmModal.onConfirm}
+                    onCancel={handleConfirmCancel}
+                />
+                {/* Header Area */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '15px', gap: '10px', flexShrink: 0 }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <h2 style={{ margin: 0, fontSize: '1.8em', background: 'var(--accent-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Daily Planner</h2>
+                        <div style={{ fontSize: '0.9em', color: 'var(--text-secondary)', marginTop: '5px' }}>
+                            {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                         </div>
-                    )}
-                    {tasks.map(task => (
-                        <div key={task.id} className="glass-panel" style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '15px',
-                            padding: '15px 20px',
-                            borderLeft: task.is_logged ? '4px solid #4caf50' : '4px solid #ff9800',
-                            background: task.is_logged ? 'rgba(76, 175, 80, 0.05)' : 'rgba(30, 30, 36, 0.6)',
-                            transition: 'all 0.3s ease'
-                        }}>
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                                <input
-                                    type="text"
-                                    value={task.name}
-                                    onChange={(e) => {
-                                        const newName = e.target.value;
-                                        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, name: newName } : t));
-                                    }}
-                                    onBlur={() => handleUpdateTask(task)}
-                                    disabled={task.is_logged}
-                                    style={{
-                                        fontWeight: '600',
-                                        backgroundColor: 'transparent',
-                                        border: 'none',
-                                        color: 'var(--text-primary)',
-                                        width: '100%',
-                                        fontSize: '1.1em',
-                                        padding: '0',
-                                        outline: 'none',
-                                        textDecoration: 'none',
-                                        opacity: task.is_logged ? 0.7 : 1
-                                    }}
-                                />
+                    </div>
 
-                                {/* Editable Comment Field */}
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                    <span style={{ fontSize: '0.9em', color: 'var(--text-secondary)' }}>Comment:</span>
+                    {/* Quick Settings Bar */}
+                    <div className="glass-panel" style={{ padding: '8px 15px', display: 'flex', gap: '15px', alignItems: 'center', borderRadius: '20px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>Alert:</span>
+                            <input
+                                type="time"
+                                value={alertTime}
+                                onChange={(e) => setAlertTime(e.target.value)}
+                                onBlur={handleSaveSettings}
+                                style={{ background: 'transparent', border: 'none', color: 'white', fontFamily: 'inherit', fontSize: '0.9em', cursor: 'pointer' }}
+                            />
+                        </div>
+                        <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.1)' }}></div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>Auto-Log:</span>
+                            <input
+                                type="time"
+                                value={autoLogTime}
+                                onChange={(e) => setAutoLogTime(e.target.value)}
+                                onBlur={handleSaveSettings}
+                                style={{ background: 'transparent', border: 'none', color: 'white', fontFamily: 'inherit', fontSize: '0.9em', cursor: 'pointer' }}
+                            />
+                        </div>
+
+                    </div>
+                </div>
+
+                {/* Task Entry Bar */}
+                <div className="glass-panel" style={{ padding: '15px', marginBottom: '20px', display: 'flex', gap: '25px', alignItems: 'center', flexShrink: 0 }}>
+                    <div style={{ flex: 1, display: 'flex', gap: '10px', minWidth: 0, maxWidth: '400px' }}>
+                        <select
+                            onChange={(e) => {
+                                handleProfileSelect(e.target.value);
+                                // Keep the value selected so we can delete it
+                                // e.target.value = ""; 
+                            }}
+                            value={selectedProfileName}
+                            style={{
+                                flex: 1,
+                                minWidth: 0,
+                                padding: '10px',
+                                borderRadius: '8px',
+                                border: '1px solid var(--glass-border)',
+                                backgroundColor: 'rgba(0,0,0,0.2)',
+                                color: 'white',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden'
+                            }}
+                        >
+                            <option value="" disabled>Load Saved Task...</option>
+                            {profiles.map((p: any) => <option key={p.name} value={p.name}>{p.name}</option>)}
+                        </select>
+                        {selectedProfileName && (
+                            <button
+                                onClick={handleDeleteHistoryItem}
+                                style={{
+                                    background: 'rgba(244, 67, 54, 0.1)',
+                                    border: '1px solid rgba(244, 67, 54, 0.3)',
+                                    color: '#f44336',
+                                    borderRadius: '8px',
+                                    padding: '0 15px',
+                                    cursor: 'pointer',
+                                    fontSize: '1.2em',
+                                    flexShrink: 0
+                                }}
+                                title="Delete Saved Task"
+                            >
+                                🗑️
+                            </button>
+                        )}
+                    </div>
+
+                    <div style={{ width: '80px', marginLeft: '20px' }}>
+                        <input
+                            type="number"
+                            placeholder="Hrs"
+                            value={newHours}
+                            onChange={(e) => setNewHours(e.target.value)}
+                            step="0.5"
+                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--glass-border)', backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', textAlign: 'center' }}
+                        />
+                    </div>
+
+                    <button
+                        onClick={handleAddTask}
+                        style={{
+                            padding: '10px 20px',
+                            backgroundColor: 'var(--primary)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            boxShadow: '0 4px 15px rgba(100, 108, 255, 0.3)',
+                            marginLeft: '10px'
+                        }}
+                    >
+                        Add
+                    </button>
+                </div>
+
+                {/* Task List */}
+                <div style={{ flex: 1, overflowY: 'auto', paddingRight: '10px', minHeight: 0 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                        {tasks.length === 0 && (
+                            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', border: '2px dashed var(--glass-border)', borderRadius: '12px' }}>
+                                No tasks planned for today. Start by adding one above!
+                            </div>
+                        )}
+                        {tasks.map(task => (
+                            <div key={task.id} className="glass-panel" style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '15px',
+                                padding: '15px 20px',
+                                borderLeft: task.is_logged ? '4px solid #4caf50' : '4px solid #ff9800',
+                                background: task.is_logged ? 'rgba(76, 175, 80, 0.05)' : 'rgba(30, 30, 36, 0.6)',
+                                transition: 'all 0.3s ease'
+                            }}>
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '5px' }}>
                                     <input
                                         type="text"
-                                        value={task.comments || ''}
-                                        placeholder="Add a comment..."
+                                        value={task.name}
                                         onChange={(e) => {
-                                            const newComment = e.target.value;
-                                            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, comments: newComment } : t));
+                                            const newName = e.target.value;
+                                            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, name: newName } : t));
                                         }}
                                         onBlur={() => handleUpdateTask(task)}
+                                        disabled={task.is_logged}
+                                        style={{
+                                            fontWeight: '600',
+                                            backgroundColor: 'transparent',
+                                            border: 'none',
+                                            color: 'var(--text-primary)',
+                                            width: '100%',
+                                            fontSize: '1.1em',
+                                            padding: '0',
+                                            outline: 'none',
+                                            textDecoration: 'none',
+                                            opacity: task.is_logged ? 0.7 : 1
+                                        }}
+                                    />
+
+                                    {/* Editable Comment Field */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                        <span style={{ fontSize: '0.9em', color: 'var(--text-secondary)' }}>Comment:</span>
+                                        <input
+                                            type="text"
+                                            value={task.comments || ''}
+                                            placeholder="Add a comment..."
+                                            onChange={(e) => {
+                                                const newComment = e.target.value;
+                                                setTasks(prev => prev.map(t => t.id === task.id ? { ...t, comments: newComment } : t));
+                                            }}
+                                            onBlur={() => handleUpdateTask(task)}
+                                            style={{
+                                                background: 'transparent',
+                                                border: 'none',
+                                                borderBottom: '1px solid rgba(255,255,255,0.1)',
+                                                color: 'var(--text-secondary)',
+                                                fontSize: '0.9em',
+                                                width: '100%',
+                                                padding: '2px 0'
+                                            }}
+                                        />
+                                    </div>
+
+                                    <div style={{ fontSize: '0.85em', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span>{task.redmine_issue_id ? `Issue #${task.redmine_issue_id}` : 'No Issue Linked'}</span>
+                                        <span style={{
+                                            fontSize: '0.8em',
+                                            fontWeight: 'bold',
+                                            color: task.is_logged ? '#4caf50' : '#ff9800',
+                                            border: `1px solid ${task.is_logged ? '#4caf50' : '#ff9800'}`,
+                                            padding: '1px 6px',
+                                            borderRadius: '4px'
+                                        }}>
+                                            {task.is_logged ? 'LOGGED' : 'PENDING'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    fontWeight: 'bold',
+                                    fontSize: '1.2em',
+                                    color: task.is_logged ? '#4caf50' : 'var(--primary)',
+                                    minWidth: '60px',
+                                    textAlign: 'right'
+                                }}>
+                                    {task.planned_hours.toFixed(1)}h
+                                </div>
+
+                                {/* Pause Button */}
+                                {!task.is_logged && (
+                                    <button
+                                        onClick={() => {
+                                            const updatedTask = { ...task, is_paused: !task.is_paused };
+                                            handleUpdateTask(updatedTask);
+                                        }}
                                         style={{
                                             background: 'transparent',
                                             border: 'none',
-                                            borderBottom: '1px solid rgba(255,255,255,0.1)',
-                                            color: 'var(--text-secondary)',
-                                            fontSize: '0.9em',
-                                            width: '100%',
-                                            padding: '2px 0'
+                                            cursor: 'pointer',
+                                            color: task.is_paused ? '#ff9800' : 'var(--text-secondary)',
+                                            padding: '8px',
+                                            borderRadius: '50%',
+                                            fontSize: '1.2em',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            opacity: task.is_paused ? 1 : 0.5
                                         }}
-                                    />
-                                </div>
+                                        onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.opacity = task.is_paused ? '1' : '0.5'; }}
+                                        title={task.is_paused ? "Resume Auto-Log" : "Pause Auto-Log"}
+                                    >
+                                        {task.is_paused ? '⏸️' : '⏯️'}
+                                    </button>
+                                )}
 
-                                <div style={{ fontSize: '0.85em', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <span>{task.redmine_issue_id ? `Issue #${task.redmine_issue_id}` : 'No Issue Linked'}</span>
-                                    <span style={{
-                                        fontSize: '0.8em',
-                                        fontWeight: 'bold',
-                                        color: task.is_logged ? '#4caf50' : '#ff9800',
-                                        border: `1px solid ${task.is_logged ? '#4caf50' : '#ff9800'}`,
-                                        padding: '1px 6px',
-                                        borderRadius: '4px'
-                                    }}>
-                                        {task.is_logged ? 'LOGGED' : 'PENDING'}
-                                    </span>
-                                </div>
-                            </div>
+                                {!task.is_logged && (
+                                    <button
+                                        onClick={() => handleLogTask(task)}
+                                        style={{
+                                            background: 'transparent',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            color: 'var(--primary)',
+                                            padding: '8px',
+                                            borderRadius: '50%',
+                                            fontSize: '1.2em',
+                                            transition: 'all 0.2s',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}
+                                        onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(100, 108, 255, 0.1)'; }}
+                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                                        title="Log to Redmine"
+                                    >
+                                        🕑
+                                    </button>
+                                )}
 
-                            <div style={{
-                                fontWeight: 'bold',
-                                fontSize: '1.2em',
-                                color: task.is_logged ? '#4caf50' : 'var(--primary)',
-                                minWidth: '60px',
-                                textAlign: 'right'
-                            }}>
-                                {task.planned_hours.toFixed(1)}h
-                            </div>
-
-                            {/* Pause Button */}
-                            {!task.is_logged && (
                                 <button
-                                    onClick={() => {
-                                        const updatedTask = { ...task, is_paused: !task.is_paused };
-                                        handleUpdateTask(updatedTask);
-                                    }}
+                                    onClick={() => handleDeleteTask(task.id)}
                                     style={{
                                         background: 'transparent',
                                         border: 'none',
                                         cursor: 'pointer',
-                                        color: task.is_paused ? '#ff9800' : 'var(--text-secondary)',
+                                        color: 'var(--text-secondary)',
                                         padding: '8px',
                                         borderRadius: '50%',
-                                        fontSize: '1.2em',
-                                        transition: 'all 0.2s',
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'center',
-                                        opacity: task.is_paused ? 1 : 0.5
+                                        transition: 'all 0.2s'
                                     }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.opacity = task.is_paused ? '1' : '0.5'; }}
-                                    title={task.is_paused ? "Resume Auto-Log" : "Pause Auto-Log"}
+                                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(244, 67, 54, 0.1)'; e.currentTarget.style.color = '#f44336'; }}
+                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+                                    title="Delete Task"
                                 >
-                                    {task.is_paused ? '⏸️' : '⏯️'}
+                                    ✕
                                 </button>
-                            )}
-
-                            {!task.is_logged && (
-                                <button
-                                    onClick={() => handleLogTask(task)}
-                                    style={{
-                                        background: 'transparent',
-                                        border: 'none',
-                                        cursor: 'pointer',
-                                        color: 'var(--primary)',
-                                        padding: '8px',
-                                        borderRadius: '50%',
-                                        fontSize: '1.2em',
-                                        transition: 'all 0.2s',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center'
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(100, 108, 255, 0.1)'; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                                    title="Log to Redmine"
-                                >
-                                    🕑
-                                </button>
-                            )}
-
-                            <button
-                                onClick={() => handleDeleteTask(task.id)}
-                                style={{
-                                    background: 'transparent',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    color: 'var(--text-secondary)',
-                                    padding: '8px',
-                                    borderRadius: '50%',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    transition: 'all 0.2s'
-                                }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(244, 67, 54, 0.1)'; e.currentTarget.style.color = '#f44336'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
-                                title="Delete Task"
-                            >
-                                ✕
-                            </button>
-                        </div>
-                    ))}
+                            </div>
+                        ))}
+                    </div>
                 </div>
+
+                {/* Footer */}
+                <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px', flexShrink: 0 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '1.1em' }}>Total Planned:</span>
+                    <span style={{ fontSize: '2em', fontWeight: 'bold', background: 'var(--accent-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                        {totalPlanned.toFixed(1)}h
+                    </span>
+                </div>
+
+
             </div>
-
-            {/* Footer */}
-            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: '10px', flexShrink: 0 }}>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '1.1em' }}>Total Planned:</span>
-                <span style={{ fontSize: '2em', fontWeight: 'bold', background: 'var(--accent-gradient)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                    {totalPlanned.toFixed(1)}h
-                </span>
-            </div>
-
-
         </div>
     );
 };

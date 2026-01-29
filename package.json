@@ -5,8 +5,11 @@
   "description": "A Redmine time tracking and daily planning application",
   "author": "Siri Chiu",
   "main": "electron/main.js",
+  "bin": {
+    "redmine-tracker": "./bin/cli.js"
+  },
   "scripts": {
-    "dev": "concurrently -k --success first \"vite\" \"python backend/main.py\" \"wait-on tcp:5173 tcp:8000 && electron .\"",
+    "dev": "concurrently -k --success first \"vite\" \".\\.venv\\Scripts\\python.exe backend/main.py\" \"wait-on tcp:5173 tcp:8000 && electron .\"",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

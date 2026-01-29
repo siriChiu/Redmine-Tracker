@@ -99,7 +99,19 @@ The application is built around a simple 3-step loop: **Plan ➝ Track ➝ Log**
 
 ---
 
-## 💻 Development Guide
+## � Usage via npx
+
+You can execute the setup/info script directly from the repository without cloning manually if you have access to the internal Gitea:
+
+```bash
+# This will run the repository's CLI script
+npx -y git+https://git.sw.ciot.work/Team/Redmine-Tracker.git#v1.0
+```
+*Note: This runs the included CLI script (`bin/cli.js`), which currently provides setup information.*
+
+---
+
+## �💻 Development Guide
 
 The application uses a concurrent architecture to run the Frontend (Vite/React), Backend (FastAPI), and Electron wrapper simultaneously.
 

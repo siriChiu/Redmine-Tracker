@@ -9,7 +9,7 @@
     "redmine-tracker": "./bin/cli.js"
   },
   "scripts": {
-    "dev": "concurrently -k --success first \"vite\" \".\\.venv\\Scripts\\python.exe backend/main.py\" \"wait-on tcp:5173 tcp:8000 && electron .\"",
+    "dev": "electron .",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",

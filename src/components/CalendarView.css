@@ -156,3 +156,16 @@
 .fc-scroller::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
 }
+
+.outlook-event {
+    border-style: dashed !important;
+    cursor: pointer;
+}
+
+.outlook-event:hover {
+    filter: brightness(1.18);
+}
+
+.outlook-unmapped {
+    border-width: 2px !important;
+}

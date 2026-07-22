@@ -28,14 +28,10 @@ interface Activity {
     name: string;
 }
 
-const RD_FUNCTION_TEAMS = [
-    "SW_Platform_management", "SW_OS/BSP", "SW_Networking", "SW_APTC", "SW_PM", "SW_QA",
-    "BIOS", "EE1", "EE2", "EE3", "ME", "Thermal", "N/A", "EE4", "SE"
-];
-
 const SettingsView = () => {
     const [activeTab, setActiveTab] = useState<'general' | 'profiles'>('general');
     const [apiKey, setApiKey] = useState('');
+    const [redmineUrl, setRedmineUrl] = useState('http://advrm.advantech.com:3002/');
     const [status, setStatus] = useState('');
     const [syncStatus, setSyncStatus] = useState('');
 
@@ -52,7 +48,6 @@ const SettingsView = () => {
     const [selectedProject, setSelectedProject] = useState<number | ''>('');
     const [selectedIssue, setSelectedIssue] = useState<number | ''>('');
     const [selectedActivity, setSelectedActivity] = useState<number | ''>('');
-    const [selectedRdTeam, setSelectedRdTeam] = useState('N/A');
 
     const [issueIdInput, setIssueIdInput] = useState('');
     const [issueSearchStatus, setIssueSearchStatus] = useState('');
@@ -63,6 +58,9 @@ const SettingsView = () => {
     const [autoLogTime, setAutoLogTime] = useState('18:00');
     const [calendarStartTime, setCalendarStartTime] = useState('06:00');
     const [calendarEndTime, setCalendarEndTime] = useState('21:00');
+    const [remindersEnabled, setRemindersEnabled] = useState(true);
+    const [dailyTargetHours, setDailyTargetHours] = useState(8);
+    const [weeklyTargetHours, setWeeklyTargetHours] = useState(40);
 
     // UI State
     const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
@@ -125,10 +123,14 @@ const SettingsView = () => {
             .then(res => res.json())
             .then(data => {
                 setApiKey(data.api_key || '');
+                setRedmineUrl(data.redmine_url || 'http://advrm.advantech.com:3002/');
                 setAlertTime(data.alert_time || '17:00');
                 setAutoLogTime(data.auto_log_time || '18:00');
                 setCalendarStartTime(data.calendar_start_time || '06:00');
                 setCalendarEndTime(data.calendar_end_time || '21:00');
+                setRemindersEnabled(data.reminders_enabled !== false);
+                setDailyTargetHours(Number(data.daily_target_hours || 8));
+                setWeeklyTargetHours(Number(data.weekly_target_hours || 40));
             })
             .catch(console.error);
     };
@@ -186,11 +188,14 @@ const SettingsView = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 api_key: apiKey,
-                redmine_url: 'http://advrm.advantech.com:3002/', // Assuming default or fetched
+                redmine_url: redmineUrl,
                 alert_time: alertTime,
                 auto_log_time: autoLogTime,
                 calendar_start_time: calendarStartTime,
-                calendar_end_time: calendarEndTime
+                calendar_end_time: calendarEndTime,
+                reminders_enabled: remindersEnabled,
+                daily_target_hours: dailyTargetHours,
+                weekly_target_hours: weeklyTargetHours
             })
         })
             .then(res => res.json())
@@ -202,6 +207,14 @@ const SettingsView = () => {
                 setStatus('Error saving settings');
                 addToast("Error saving settings", 'error');
             });
+    };
+
+    const testReminder = () => {
+        if (!window.require) {
+            addToast('置頂提醒只能在 Electron 桌面程式中測試。', 'info');
+            return;
+        }
+        window.require('electron').ipcRenderer.send('test-worklog-reminder');
     };
 
     const syncData = () => {
@@ -262,7 +275,7 @@ const SettingsView = () => {
             name: newProfileName,
             comments: newProfileComment,
             activity_id: Number(selectedActivity),
-            rd_function_team: selectedRdTeam
+            rd_function_team: 'SW_OS/BSP'
         };
 
         if (profileMode === 'project') {
@@ -320,7 +333,6 @@ const SettingsView = () => {
                     setNewProfileComment('');
                     setIssueIdInput('');
                     setIssueSearchStatus('');
-                    setSelectedRdTeam('N/A');
                     setSelectedIssue(''); // Reset issue selection
                     addToast("Profile saved!", 'success');
                 } else {
@@ -357,7 +369,6 @@ const SettingsView = () => {
         setNewProfileName(profile.name);
         setNewProfileComment(profile.comments);
         setSelectedActivity(profile.activity_id);
-        setSelectedRdTeam(profile.rd_function_team || 'N/A');
 
         // Logic to determine mode based on profile data could be improved
         // For now, if we have project ID, we default to project mode if possible
@@ -478,6 +489,16 @@ const SettingsView = () => {
                         <div style={cardStyle}>
                             <h3 style={{ marginTop: 0, marginBottom: '20px', fontSize: '1.3em' }}>Redmine Configuration</h3>
                             <div style={{ marginBottom: '20px' }}>
+                                <label style={labelStyle}>Redmine URL</label>
+                                <input
+                                    type="url"
+                                    value={redmineUrl}
+                                    onChange={(e) => setRedmineUrl(e.target.value)}
+                                    placeholder="https://redmine.example.com/"
+                                    style={inputStyle}
+                                />
+                            </div>
+                            <div style={{ marginBottom: '20px' }}>
                                 <label style={labelStyle}>Redmine API Key</label>
                                 <input
                                     type="password"
@@ -515,6 +536,45 @@ const SettingsView = () => {
                                     Save Configuration
                                 </button>
                                 {status && <span style={{ color: '#4ade80' }}>{status}</span>}
+                            </div>
+                        </div>
+
+                        <div style={cardStyle}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '18px' }}>
+                                <div>
+                                    <h3 style={{ margin: 0, fontSize: '1.3em' }}>Worklog Reminder</h3>
+                                    <p style={{ color: '#aaa', fontSize: '0.88em', margin: '5px 0 0' }}>
+                                        平日到指定時間仍未滿每日工時會置頂提醒；星期五也會檢查本週工時。
+                                    </p>
+                                </div>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={remindersEnabled} onChange={e => setRemindersEnabled(e.target.checked)}
+                                        style={{ width: '18px', height: '18px' }} />
+                                    啟用
+                                </label>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '14px', marginBottom: '18px' }}>
+                                <div>
+                                    <label style={labelStyle}>提醒時間</label>
+                                    <input type="time" value={alertTime} onChange={e => setAlertTime(e.target.value)} style={inputStyle} disabled={!remindersEnabled} />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>每日目標（小時）</label>
+                                    <input type="number" min="0.25" step="0.25" value={dailyTargetHours}
+                                        onChange={e => setDailyTargetHours(Number(e.target.value))} style={inputStyle} disabled={!remindersEnabled} />
+                                </div>
+                                <div>
+                                    <label style={labelStyle}>每週目標（小時）</label>
+                                    <input type="number" min="0.25" step="0.25" value={weeklyTargetHours}
+                                        onChange={e => setWeeklyTargetHours(Number(e.target.value))} style={inputStyle} disabled={!remindersEnabled} />
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                                <span style={{ color: 'var(--text-secondary)', fontSize: '0.82em' }}>提醒由背景桌面程序執行，即使主視窗縮到系統匣仍有效。</span>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={testReminder} style={{ ...buttonStyle, padding: '9px 14px', background: '#7c3aed', color: 'white', whiteSpace: 'nowrap' }}>測試提醒</button>
+                                    <button onClick={saveSettings} style={{ ...buttonStyle, padding: '9px 14px', background: '#22c55e', color: 'white', whiteSpace: 'nowrap' }}>儲存提醒</button>
+                                </div>
                             </div>
                         </div>
 
@@ -634,13 +694,7 @@ const SettingsView = () => {
                                 </div>
                                 <div>
                                     <label style={labelStyle}>RD Function Team</label>
-                                    <select
-                                        value={selectedRdTeam}
-                                        onChange={e => setSelectedRdTeam(e.target.value)}
-                                        style={inputStyle}
-                                    >
-                                        {RD_FUNCTION_TEAMS.map(team => <option key={team} value={team}>{team}</option>)}
-                                    </select>
+                                    <div style={{ ...inputStyle, color: '#c4b5fd' }}>SW_OS/BSP（固定）</div>
                                 </div>
                             </div>
 
@@ -700,7 +754,7 @@ const SettingsView = () => {
                                                 </div>
                                                 <div style={{ fontSize: '0.85em', color: '#888' }}>
                                                     Activity: {activities.find(a => a.id === p.activity_id)?.name || p.activity_id}
-                                                    {p.rd_function_team && ` • Team: ${p.rd_function_team}`}
+                                                    {' • Team: SW_OS/BSP'}
                                                     {p.comments && ` • Comment: ${p.comments}`}
                                                 </div>
                                             </div>

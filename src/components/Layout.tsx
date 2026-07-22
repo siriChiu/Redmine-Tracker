@@ -3,8 +3,10 @@ import Sidebar from './Sidebar';
 import TitleBar from './TitleBar';
 import { ToastContainer } from './Toast';
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 const Layout = () => {
+    const navigate = useNavigate();
     const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
 
     const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -30,6 +32,14 @@ const Layout = () => {
                 // For now, silent as the user might just be starting up
             });
     }, []);
+
+    useEffect(() => {
+        if (!window.require) return;
+        const { ipcRenderer } = window.require('electron');
+        const handleNavigation = (_event: unknown, path: string) => navigate(path);
+        ipcRenderer.on('navigate-to', handleNavigation);
+        return () => ipcRenderer.removeListener('navigate-to', handleNavigation);
+    }, [navigate]);
 
     return (
         <div style={{

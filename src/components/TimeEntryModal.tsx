@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ToastContainer } from './Toast';
 import ConfirmModal from './ConfirmModal';
 
@@ -7,327 +7,615 @@ interface TimeEntryModalProps {
     onClose: () => void;
     onSave: () => void;
     initialDate: string;
-    existingEntry: any | null;
-    initialStartTime?: string; // Optional prop
+    existingEntry: { id?: string; extendedProps?: EntryExtendedProps } | null;
+    initialStartTime?: string;
+    initialEndTime?: string;
 }
 
-const TimeEntryModal: React.FC<TimeEntryModalProps> = ({ isOpen, onClose, onSave, initialDate, existingEntry, initialStartTime }) => {
+interface Project { id: number; name: string }
+interface Issue { id: number; subject: string; project_id?: number }
+interface Activity { id: number; name: string }
+interface ResolvedIssue {
+    id: number;
+    subject: string;
+    created: boolean;
+}
+interface LastEntryDefaults {
+    profile_name?: string;
+    project_id?: number;
+    issue_id?: number;
+    activity_id?: number;
+    comments?: string;
+}
+interface Profile {
+    name: string;
+    project_id: number;
+    issue_id?: number;
+    activity_id?: number;
+    comments?: string;
+}
+interface EntryExtendedProps {
+    source?: 'redmine' | 'outlook';
+    hours?: number;
+    comments?: string;
+    projectId?: number;
+    issueId?: number;
+    activityId?: number;
+    startTime?: string;
+    endTime?: string;
+    outlookSubject?: string;
+    outlookEventId?: string;
+}
+interface TimeEntryPayload {
+    spent_on: string;
+    hours: number;
+    comments: string;
+    activity_id: number;
+    project_id: number;
+    issue_id?: number;
+    rd_function_team: string;
+    start_time: string;
+    end_time: string;
+    outlook_event_id?: string;
+    outlook_subject?: string;
+}
+
+const timeToMinutes = (value: string) => {
+    const [hours, minutes] = value.split(':').map(Number);
+    return Number.isFinite(hours) && Number.isFinite(minutes) ? hours * 60 + minutes : 0;
+};
+
+const minutesToTime = (value: number) => {
+    const normalized = Math.max(0, Math.min(1439, Math.round(value)));
+    return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+};
+
+const workingHoursBetween = (startTime: string, endTime: string) => {
+    const start = timeToMinutes(startTime);
+    const end = timeToMinutes(endTime);
+    if (end <= start) return 0;
+    const lunchOverlap = Math.max(0, Math.min(end, 13 * 60) - Math.max(start, 12 * 60));
+    return Number(((end - start - lunchOverlap) / 60).toFixed(2));
+};
+
+const endTimeFromWorkingHours = (startTime: string, hours: number) => {
+    let cursor = timeToMinutes(startTime);
+    let remaining = Math.max(0, Number(hours) * 60);
+    if (cursor >= 12 * 60 && cursor < 13 * 60) cursor = 13 * 60;
+    if (cursor < 12 * 60 && cursor + remaining > 12 * 60) {
+        remaining -= 12 * 60 - cursor;
+        cursor = 13 * 60;
+    }
+    return minutesToTime(cursor + remaining);
+};
+
+const loadLastEntryDefaults = (): LastEntryDefaults => {
+    try {
+        return JSON.parse(localStorage.getItem('redmine_tracker_last_entry_defaults') || '{}');
+    } catch {
+        return {};
+    }
+};
+
+const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    border: '1px solid rgba(255,255,255,0.12)',
+    background: '#202027',
+    color: 'white',
+    boxSizing: 'border-box'
+};
+
+const labelStyle: React.CSSProperties = {
+    display: 'block',
+    marginBottom: '6px',
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: '0.86em',
+    fontWeight: 600
+};
+
+const TimeEntryModal: React.FC<TimeEntryModalProps> = ({
+    isOpen, onClose, onSave, initialDate, existingEntry, initialStartTime, initialEndTime
+}) => {
+    const props = existingEntry?.extendedProps || {};
+    const isOutlookEvent = props.source === 'outlook';
+    const isEditMode = Boolean(existingEntry?.id) && !isOutlookEvent;
+
     const [hours, setHours] = useState(0);
     const [comments, setComments] = useState('');
-    const [activityId, setActivityId] = useState(9); // Default Dev
+    const [activityId, setActivityId] = useState<number | ''>(9);
     const [projectId, setProjectId] = useState<number | ''>('');
     const [issueId, setIssueId] = useState<number | ''>('');
-    const [rdFunctionTeam, setRdFunctionTeam] = useState('N/A');
-    const [startTime, setStartTime] = useState('09:00'); // Default start time
+    const [issueMode, setIssueMode] = useState<'existing' | 'new'>('existing');
+    const [pendingProfileIssue, setPendingProfileIssue] = useState<ResolvedIssue | null>(null);
+    const [newIssueSubject, setNewIssueSubject] = useState('');
+    const [hwVersion, setHwVersion] = useState('N/A');
+    const [fwVersion, setFwVersion] = useState('N/A');
+    const [issueFinder, setIssueFinder] = useState('FW&SW RD');
+    const [bugCreateAfterMp, setBugCreateAfterMp] = useState('0');
+    const [startTime, setStartTime] = useState('09:00');
+    const [endTime, setEndTime] = useState('09:00');
     const [selectedProfile, setSelectedProfile] = useState('');
-
-    const [projects, setProjects] = useState<any[]>([]);
-    const [, setActivities] = useState<any>({});
-    const [profiles, setProfiles] = useState<any[]>([]);
-
-    // UI State
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [issues, setIssues] = useState<Issue[]>([]);
+    const [activities, setActivities] = useState<Activity[]>([]);
+    const [profiles, setProfiles] = useState<Profile[]>([]);
+    const [favoriteProjectIds, setFavoriteProjectIds] = useState<number[]>([]);
+    const [showAllProjects, setShowAllProjects] = useState(false);
+    const [loadingIssues, setLoadingIssues] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [toasts, setToasts] = useState<{ id: string; message: string; type: 'success' | 'error' | 'info' }[]>([]);
     const [confirmModal, setConfirmModal] = useState<{ isOpen: boolean; message: string; title?: string; onConfirm: () => void }>({
-        isOpen: false,
-        message: '',
-        onConfirm: () => { }
+        isOpen: false, message: '', onConfirm: () => undefined
     });
-
-    // Helper: Add Toast
-    const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-        const id = Date.now().toString();
-        setToasts(prev => [...prev, { id, message, type }]);
-    };
-
-    const removeToast = (id: string) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-    };
-
     const confirmResolveRef = useRef<((value: boolean) => void) | null>(null);
 
-    const openConfirm = (message: string, title?: string) => {
-        return new Promise<boolean>((resolve) => {
-            confirmResolveRef.current = resolve;
-            setConfirmModal({
-                isOpen: true,
-                message,
-                title,
-                onConfirm: () => {
-                    if (confirmResolveRef.current) confirmResolveRef.current(true);
-                    setConfirmModal(prev => ({ ...prev, isOpen: false }));
-                }
-            });
-        });
+    const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        setToasts(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, message, type }]);
     };
 
+    const activityList = useMemo(() => activities.length ? activities : [{ id: 9, name: 'Development' }], [activities]);
+    const visibleProjects = useMemo(() => {
+        if (showAllProjects || favoriteProjectIds.length === 0) return projects;
+        return projects.filter(project => favoriteProjectIds.includes(project.id) || project.id === projectId);
+    }, [favoriteProjectIds, projectId, projects, showAllProjects]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const entryProps = existingEntry?.extendedProps || {};
+        const outlookEntry = entryProps.source === 'outlook';
+        Promise.all([
+            fetch('http://127.0.0.1:8000/api/redmine/projects').then(res => res.json()),
+            fetch('http://127.0.0.1:8000/api/redmine/activities').then(res => res.json()),
+            fetch('http://127.0.0.1:8000/api/profiles').then(res => res.json()),
+            fetch('http://127.0.0.1:8000/api/favorite_projects').then(res => res.json())
+        ]).then(([projectData, activityData, profileData, favoriteData]) => {
+            const projectList = Array.isArray(projectData) ? projectData : [];
+            setProjects(projectList);
+            const activityValues = Array.isArray(activityData)
+                ? activityData
+                : Object.entries(activityData || {}).map(([id, name]) => ({ id: Number(id), name: String(name) }));
+            setActivities(activityValues);
+            const profileList = Array.isArray(profileData) ? profileData : [];
+            setProfiles(profileList);
+            const favoriteIds = Array.isArray(favoriteData) ? favoriteData.map(Number) : [];
+            setFavoriteProjectIds(favoriteIds);
+            setShowAllProjects(favoriteIds.length === 0);
+            if (!entryProps.projectId) {
+                const defaults = loadLastEntryDefaults();
+                const legacyProjectId = Number(defaults.project_id || localStorage.getItem('redmine_tracker_last_project'));
+                const rememberedProfile = profileList.find(profile => profile.name === defaults.profile_name)
+                    || [...profileList].reverse().find(profile => (
+                        !defaults.profile_name && legacyProjectId && Number(profile.project_id) === legacyProjectId
+                    ));
+                if (rememberedProfile) {
+                    setSelectedProfile(rememberedProfile.name);
+                    setProjectId(Number(rememberedProfile.project_id));
+                    setIssueId(rememberedProfile.issue_id ? Number(rememberedProfile.issue_id) : '');
+                    setActivityId(rememberedProfile.activity_id ? Number(rememberedProfile.activity_id) : 9);
+                    setComments(rememberedProfile.comments || defaults.comments || '');
+                    setIssueMode('existing');
+                } else {
+                    const lastProjectId = legacyProjectId;
+                    if (lastProjectId && projectList.some(project => project.id === lastProjectId)) {
+                        setProjectId(lastProjectId);
+                        setIssueId(defaults.issue_id ? Number(defaults.issue_id) : '');
+                    }
+                    if (defaults.activity_id) setActivityId(Number(defaults.activity_id));
+                    if (defaults.comments) setComments(defaults.comments);
+                }
+            }
+        }).catch(() => addToast('無法載入 Redmine 基本資料，請確認連線。', 'error'));
+
+        const defaultHours = Number(entryProps.hours || 0);
+        setHours(defaultHours);
+        setComments(entryProps.comments || (outlookEntry ? entryProps.outlookSubject || '' : ''));
+        setProjectId(entryProps.projectId ? Number(entryProps.projectId) : '');
+        setIssueId(entryProps.issueId ? Number(entryProps.issueId) : '');
+        setPendingProfileIssue(null);
+        setActivityId(entryProps.activityId ? Number(entryProps.activityId) : 9);
+        setHwVersion(localStorage.getItem('redmine_issue_hw_version') || 'N/A');
+        setFwVersion(localStorage.getItem('redmine_issue_fw_version') || 'N/A');
+        setIssueFinder(localStorage.getItem('redmine_issue_finder') || 'FW&SW RD');
+        setBugCreateAfterMp(localStorage.getItem('redmine_issue_bug_after_mp') || '0');
+        const resolvedStartTime = entryProps.startTime || initialStartTime || '09:00';
+        setStartTime(resolvedStartTime);
+        setEndTime(entryProps.endTime || initialEndTime || endTimeFromWorkingHours(resolvedStartTime, defaultHours));
+        setIssueMode('existing');
+        setNewIssueSubject(outlookEntry ? entryProps.outlookSubject || '' : '');
+        setSelectedProfile('');
+        setSaving(false);
+    }, [isOpen, existingEntry, initialStartTime, initialEndTime]);
+
+    useEffect(() => {
+        if (!isOpen || !projectId) {
+            setIssues([]);
+            return;
+        }
+        setLoadingIssues(true);
+        fetch(`http://127.0.0.1:8000/api/redmine/issues?project_id=${projectId}&status_id=open&limit=300`)
+            .then(res => res.json())
+            .then(data => setIssues(Array.isArray(data) ? data : []))
+            .catch(() => setIssues([]))
+            .finally(() => setLoadingIssues(false));
+    }, [isOpen, projectId]);
+
+    const openConfirm = (message: string, title?: string) => new Promise<boolean>((resolve) => {
+        confirmResolveRef.current = resolve;
+        setConfirmModal({
+            isOpen: true,
+            message,
+            title,
+            onConfirm: () => {
+                confirmResolveRef.current?.(true);
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+            }
+        });
+    });
+
     const handleConfirmCancel = () => {
-        if (confirmResolveRef.current) confirmResolveRef.current(false);
+        confirmResolveRef.current?.(false);
         setConfirmModal(prev => ({ ...prev, isOpen: false }));
     };
 
-    const fetchProjects = () => {
-        fetch('http://127.0.0.1:8000/api/redmine/projects')
-            .then(res => res.json())
-            .then(data => Array.isArray(data) ? setProjects(data) : setProjects([]))
-            .catch(console.error);
+    const handleProfileSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const name = event.target.value;
+        setSelectedProfile(name);
+        const profile = profiles.find(item => item.name === name);
+        if (!profile) return;
+        setProjectId(Number(profile.project_id));
+        setIssueId(profile.issue_id ? Number(profile.issue_id) : '');
+        setActivityId(profile.activity_id ? Number(profile.activity_id) : 9);
+        setComments(profile.comments || comments);
+        setIssueMode('existing');
     };
 
-    const fetchActivities = () => {
-        fetch('http://127.0.0.1:8000/api/redmine/activities')
-            .then(res => res.json())
-            .then(setActivities)
-            .catch(console.error);
-    };
-
-    const fetchProfiles = () => {
-        fetch('http://127.0.0.1:8000/api/profiles')
-            .then(res => res.json())
-            .then(data => {
-                const profileList = Array.isArray(data) ? data : [];
-                setProfiles(profileList);
-
-                // Auto-load logic here to avoid race conditions
-                const isNewEntry = !existingEntry || !existingEntry.id;
-                if (isNewEntry && profileList.length > 0) {
-                    const lastProfileName = localStorage.getItem('redmine_tracker_last_profile');
-                    if (lastProfileName) {
-                        const profile = profileList.find(p => p.name === lastProfileName);
-                        if (profile) {
-                            const pId = profile.project_id ? Number(profile.project_id) : '';
-                            const iId = profile.issue_id ? Number(profile.issue_id) : '';
-                            const aId = profile.activity_id ? Number(profile.activity_id) : 9;
-
-                            setProjectId(pId);
-                            setIssueId(iId);
-                            setActivityId(aId);
-                            setComments(profile.comments || '');
-                            setRdFunctionTeam(profile.rd_function_team || 'N/A');
-                            setSelectedProfile(lastProfileName);
-                            // console.log("Auto-loaded profile:", lastProfileName);
-                        }
-                    }
-                }
-            })
-            .catch(console.error);
-    };
-
-    useEffect(() => {
-        if (isOpen) {
-            fetchProjects();
-            fetchActivities();
-            fetchProfiles();
-
-            if (existingEntry) {
-                setHours(existingEntry.extendedProps.hours || 0);
-                setComments(existingEntry.extendedProps.comments || '');
-                setProjectId(existingEntry.extendedProps.projectId || '');
-                setIssueId(existingEntry.extendedProps.issueId || '');
-                // Use stored start time or default
-                setStartTime(existingEntry.extendedProps.startTime || '09:00');
-                setSelectedProfile('');
-            } else {
-                // Reset for new entry
-                setHours(0);
-                setComments('');
-                setProjectId('');
-                setIssueId('');
-                setActivityId(9);
-                setRdFunctionTeam('N/A');
-                // Use passed initial start time or default
-                setStartTime(initialStartTime || '09:00');
-                // Don't reset selectedProfile here, let fetchProfiles handle it
-            }
+    const toggleFavoriteProject = async () => {
+        if (!projectId) return;
+        const projectNumber = Number(projectId);
+        const nextIds = favoriteProjectIds.includes(projectNumber)
+            ? favoriteProjectIds.filter(id => id !== projectNumber)
+            : [...favoriteProjectIds, projectNumber];
+        setFavoriteProjectIds(nextIds);
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/favorite_projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project_ids: nextIds })
+            });
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.error || '常用 Project 儲存失敗。');
+            setFavoriteProjectIds(data.project_ids);
+        } catch (error) {
+            setFavoriteProjectIds(favoriteProjectIds);
+            addToast(error instanceof Error ? error.message : '常用 Project 儲存失敗。', 'error');
         }
-    }, [isOpen, existingEntry, initialStartTime]);
+    };
 
+    const createIssueIfNeeded = async (): Promise<ResolvedIssue | undefined> => {
+        if (issueMode === 'existing') {
+            if (!issueId) return undefined;
+            const existingIssue = issues.find(item => item.id === Number(issueId));
+            return { id: Number(issueId), subject: existingIssue?.subject || `Issue #${issueId}`, created: false };
+        }
+        if (!newIssueSubject.trim()) throw new Error('請輸入新 Issue 名稱。');
+        const requiredValues = [
+            ['HW Version', hwVersion], ['FW Version', fwVersion],
+            ['Issue Finder', issueFinder], ['Bug Create After MP', bugCreateAfterMp]
+        ];
+        const emptyField = requiredValues.find(([, value]) => !value.trim());
+        if (emptyField) throw new Error(`${emptyField[0]} 不可留白。`);
+        const response = await fetch('http://127.0.0.1:8000/api/redmine/issues', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                project_id: Number(projectId), subject: newIssueSubject.trim(), assign_to_me: true,
+                hw_version: hwVersion.trim(), fw_version: fwVersion.trim(), issue_finder: issueFinder.trim(),
+                bug_create_after_mp: bugCreateAfterMp
+            })
+        });
+        const data = await response.json();
+        if (data.status !== 'success') throw new Error(data.error || '新增 Issue 失敗。');
+        localStorage.setItem('redmine_issue_hw_version', hwVersion.trim());
+        localStorage.setItem('redmine_issue_fw_version', fwVersion.trim());
+        localStorage.setItem('redmine_issue_finder', issueFinder.trim());
+        localStorage.setItem('redmine_issue_bug_after_mp', bugCreateAfterMp);
+        const createdIssue = {
+            id: Number(data.issue.id),
+            subject: String(data.issue.subject || newIssueSubject.trim()),
+            created: true
+        };
+        // If a later step fails, retry as the existing Issue instead of creating a duplicate.
+        setIssueId(createdIssue.id);
+        setIssueMode('existing');
+        setPendingProfileIssue(createdIssue);
+        setIssues(previous => previous.some(item => item.id === createdIssue.id)
+            ? previous
+            : [...previous, { id: createdIssue.id, subject: createdIssue.subject, project_id: Number(projectId) }]);
+        return createdIssue;
+    };
 
-
-    const isEditMode = existingEntry && existingEntry.id;
-
-
-
-    const handleProfileSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const profileName = e.target.value;
+    const saveCreatedIssueAsProfile = async (issue: ResolvedIssue) => {
+        const project = projects.find(item => item.id === Number(projectId));
+        const profileName = `#${issue.id} · ${issue.subject}`;
+        const response = await fetch('http://127.0.0.1:8000/api/profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: profileName,
+                project_id: Number(projectId),
+                issue_id: issue.id,
+                activity_id: Number(activityId),
+                comments: comments.trim() || issue.subject,
+                rd_function_team: 'SW_OS/BSP',
+                project_name: project?.name || '',
+                issue_name: issue.subject
+            })
+        });
+        const data = await response.json();
+        if (data.status !== 'success') throw new Error(data.error || 'Profile 建立失敗。');
+        setProfiles(Array.isArray(data.profiles) ? data.profiles : []);
         setSelectedProfile(profileName);
+        return profileName;
+    };
 
-        if (!profileName) {
-            // Reset if empty selection
-            setProjectId('');
-            setIssueId('');
-            setActivityId(9);
-            setComments('');
-            setRdFunctionTeam('N/A');
+    const handleSave = async () => {
+        if (!projectId) {
+            addToast('請先選擇 Project。', 'error');
+            return;
+        }
+        if (!hours || hours <= 0 || hours > 24) {
+            addToast('工時必須大於 0 且不超過 24 小時。', 'error');
+            return;
+        }
+        if (!activityId) {
+            addToast('請選擇 Activity。', 'error');
             return;
         }
 
-        // Save to localStorage
-        localStorage.setItem('redmine_tracker_last_profile', profileName);
+        setSaving(true);
+        try {
+            const resolvedIssue = await createIssueIfNeeded();
+            const profileIssue = resolvedIssue?.created ? resolvedIssue : pendingProfileIssue;
+            let rememberedProfileName = selectedProfile;
+            if (profileIssue) {
+                rememberedProfileName = await saveCreatedIssueAsProfile(profileIssue);
+                setPendingProfileIssue(null);
+            }
+            const payload: TimeEntryPayload = {
+                spent_on: initialDate,
+                hours: Number(hours),
+                comments: comments.trim() || (isOutlookEvent ? props.outlookSubject || '' : ''),
+                activity_id: Number(activityId),
+                project_id: Number(projectId),
+                issue_id: resolvedIssue?.id,
+                rd_function_team: 'SW_OS/BSP',
+                start_time: startTime,
+                end_time: endTime
+            };
+            if (isOutlookEvent) {
+                payload.outlook_event_id = props.outlookEventId || '';
+                payload.outlook_subject = props.outlookSubject || '';
+            }
 
-        const profile = profiles.find(p => p.name === profileName);
-        if (profile) {
-            // Ensure IDs are numbers
-            const pId = profile.project_id ? Number(profile.project_id) : '';
-            const iId = profile.issue_id ? Number(profile.issue_id) : '';
-            const aId = profile.activity_id ? Number(profile.activity_id) : 9;
-
-            setProjectId(pId);
-            setIssueId(iId);
-            setActivityId(aId);
-            setComments(profile.comments || '');
-            setRdFunctionTeam(profile.rd_function_team || 'N/A');
+            const url = isOutlookEvent
+                ? 'http://127.0.0.1:8000/api/outlook/time_entries'
+                : isEditMode
+                    ? `http://127.0.0.1:8000/api/redmine/time_entries/${existingEntry?.id}`
+                    : 'http://127.0.0.1:8000/api/redmine/time_entries';
+            const response = await fetch(url, {
+                method: isEditMode ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.error || data.detail || '工時儲存失敗。');
+            localStorage.setItem('redmine_tracker_last_project', String(projectId));
+            localStorage.setItem('redmine_tracker_last_entry_defaults', JSON.stringify({
+                profile_name: rememberedProfileName || undefined,
+                project_id: Number(projectId),
+                issue_id: resolvedIssue?.id,
+                activity_id: Number(activityId),
+                comments: comments.trim() || (profileIssue?.subject || '')
+            } satisfies LastEntryDefaults));
+            addToast(profileIssue ? 'Issue、工時與 Profile 已建立。' : '工時已儲存。', 'success');
+            window.setTimeout(onSave, 450);
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '工時儲存失敗。', 'error');
+        } finally {
+            setSaving(false);
         }
     };
 
-    // ... (omitting other functions for brevity if not changing) ...
-
-    // Note: I need to make sure I don't delete the other functions.
-    // The replace_file_content tool replaces the chunk. 
-    // I will target the handleProfileSelect function and the Select element separately or together if contiguous.
-    // They are not contiguous. I will do handleProfileSelect first.
-
-
-
-
-
-
-    const handleSave = () => {
-        const entry = {
-            spent_on: initialDate,
-            hours: Number(hours),
-            comments,
-            activity_id: Number(activityId),
-            project_id: projectId ? Number(projectId) : undefined,
-            issue_id: issueId ? Number(issueId) : undefined,
-            rd_function_team: rdFunctionTeam,
-            start_time: startTime // Include start_time in payload
-        };
-
-        const url = isEditMode
-            ? `http://127.0.0.1:8000/api/redmine/time_entries/${existingEntry.id}`
-            : 'http://127.0.0.1:8000/api/redmine/time_entries';
-
-        const method = isEditMode ? 'PUT' : 'POST';
-
-        fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(entry)
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    addToast(data.message || "Entry saved successfully!", 'success');
-                    setTimeout(() => onSave(), 500); // Delay close to show toast
-                } else {
-                    addToast(`Error: ${data.error || data.detail || 'Unknown error'}`, 'error');
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                addToast("Failed to save entry. See console for details.", 'error');
-            });
-    };
-
     const handleDelete = async () => {
-        if (!isEditMode) return;
-
-        const confirmed = await openConfirm("Are you sure you want to delete this entry?", "Delete Entry");
-        if (!confirmed) return;
-
-        fetch(`http://127.0.0.1:8000/api/redmine/time_entries/${existingEntry.id}`, {
-            method: 'DELETE'
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    addToast(data.message || "Entry deleted successfully", 'success');
-                    setTimeout(() => onSave(), 500);
-                } else {
-                    addToast(`Error: ${data.error || data.detail || 'Unknown error'}`, 'error');
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                addToast("Failed to delete entry", 'error');
-            });
+        const entryId = existingEntry?.id;
+        if (!isEditMode || !entryId) return;
+        if (!await openConfirm('確定要刪除這筆 Redmine 工時嗎？', '刪除工時')) return;
+        try {
+            const response = await fetch(`http://127.0.0.1:8000/api/redmine/time_entries/${entryId}`, { method: 'DELETE' });
+            const data = await response.json();
+            if (data.status !== 'success') throw new Error(data.error || '刪除失敗。');
+            addToast('工時已刪除。', 'success');
+            window.setTimeout(onSave, 400);
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '刪除失敗。', 'error');
+        }
     };
-
-
 
     if (!isOpen) return null;
 
     return (
         <div style={{
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100
+            position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.76)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '20px', boxSizing: 'border-box'
         }}>
-            <ToastContainer toasts={toasts} removeToast={removeToast} />
-            <ConfirmModal
-                isOpen={confirmModal.isOpen}
-                message={confirmModal.message}
-                title={confirmModal.title}
-                onConfirm={confirmModal.onConfirm}
-                onCancel={handleConfirmCancel}
-            />
+            <ToastContainer toasts={toasts} removeToast={id => setToasts(prev => prev.filter(item => item.id !== id))} />
+            <ConfirmModal isOpen={confirmModal.isOpen} message={confirmModal.message} title={confirmModal.title}
+                onConfirm={confirmModal.onConfirm} onCancel={handleConfirmCancel} />
 
-            <div className="glass-panel" style={{ background: '#2a2a2a', padding: '20px', borderRadius: '8px', width: '400px', position: 'relative' }}>
-                <h3>{isEditMode ? 'Edit Time Entry' : 'Log Time'} - {initialDate}</h3>
-
-                <div style={{ marginBottom: '15px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
-                        <label style={{ color: '#aaa', fontSize: '0.9em', marginRight: '8px' }}>Select Saved Profile</label>
-                        <div
-                            title="You can add/edit issues in the setting page"
-                            style={{
-                                cursor: 'help',
-                                color: '#3b82f6',
-                                fontSize: '0.9em',
-                                border: '1px solid #3b82f6',
-                                borderRadius: '50%',
-                                width: '16px',
-                                height: '16px',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            i
+            <div className="glass-panel" style={{
+                background: '#17171d', padding: '24px', borderRadius: '16px', width: '640px', maxWidth: '95vw',
+                maxHeight: '90vh', overflowY: 'auto', position: 'relative'
+            }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'flex-start', marginBottom: '20px' }}>
+                    <div>
+                        <h3 style={{ margin: 0 }}>{isEditMode ? '編輯工時' : isOutlookEvent ? '從 Outlook 登錄工時' : '新增工時'}</h3>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.88em', marginTop: '4px' }}>
+                            {initialDate}{isOutlookEvent ? ` · ${props.outlookSubject}` : ''}
                         </div>
                     </div>
-                    <select onChange={handleProfileSelect} value={selectedProfile} style={{ width: '100%', padding: '8px', background: '#333', color: 'white', border: '1px solid #444' }}>
-                        <option value="">{isEditMode ? "Change Profile (Optional)..." : "Select a saved profile..."}</option>
-                        {profiles.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                    </select>
+                    <button onClick={onClose} aria-label="關閉" style={{ padding: '6px 10px', background: 'transparent', boxShadow: 'none' }}>✕</button>
                 </div>
 
-                {projectId ? (
-                    <div style={{ marginBottom: '15px', padding: '10px', background: 'rgba(59, 130, 246, 0.05)', borderRadius: '4px', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-                        <div style={{ fontSize: '0.85em', color: '#888', marginBottom: '2px' }}>Project: <span style={{ color: '#ccc' }}>{projects.find(p => p.id === projectId)?.name || projectId}</span></div>
-                        {issueId && (
-                            <div style={{ fontSize: '0.85em', color: '#888' }}>Issue ID: <span style={{ color: '#ccc' }}>{issueId}</span></div>
-                        )}
-                    </div>
-                ) : (
-                    <div style={{ marginBottom: '15px', padding: '10px', background: '#333', borderRadius: '4px', color: '#888', fontSize: '0.9em' }}>
-                        {isEditMode ? "Current project details not mapped to a profile." : "Please select a profile to load project details."}
+                {profiles.length > 0 && (
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>快速套用 Saved Profile（選填）</label>
+                        <select value={selectedProfile} onChange={handleProfileSelect} style={fieldStyle}>
+                            <option value="">不套用 Profile</option>
+                            {profiles.map(profile => <option key={profile.name} value={profile.name}>{profile.name}</option>)}
+                        </select>
                     </div>
                 )}
 
-                <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px' }}>Hours</label>
-                    <input type="number" step="0.25" value={hours} onChange={e => setHours(Number(e.target.value))} style={{ width: '100%', padding: '8px', background: '#333', color: 'white', border: '1px solid #444' }} />
+                <div style={{ marginBottom: '16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <label style={{ ...labelStyle, marginBottom: 0 }}>Project *</label>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                            <button type="button" onClick={() => setShowAllProjects(value => !value)} style={{
+                                padding: '4px 8px', fontSize: '0.75em', background: 'transparent', boxShadow: 'none', color: '#a5b4fc'
+                            }}>
+                                {showAllProjects ? '只看常用' : '顯示全部'}
+                            </button>
+                            <button type="button" onClick={toggleFavoriteProject} disabled={!projectId} title="切換常用 Project" style={{
+                                padding: '4px 8px', fontSize: '0.75em', boxShadow: 'none',
+                                background: projectId && favoriteProjectIds.includes(Number(projectId)) ? 'rgba(245,158,11,.18)' : 'transparent',
+                                color: projectId && favoriteProjectIds.includes(Number(projectId)) ? '#fbbf24' : '#aaa'
+                            }}>
+                                {projectId && favoriteProjectIds.includes(Number(projectId)) ? '★ 常用' : '☆ 加入常用'}
+                            </button>
+                        </div>
+                    </div>
+                    <select value={projectId} onChange={event => {
+                        setProjectId(event.target.value ? Number(event.target.value) : '');
+                        setIssueId('');
+                    }} style={fieldStyle}>
+                        <option value="">{favoriteProjectIds.length && !showAllProjects ? '選擇常用 Project' : '選擇 Project'}</option>
+                        {visibleProjects.map(project => <option key={project.id} value={project.id}>
+                            {favoriteProjectIds.includes(project.id) ? '★ ' : ''}{project.name}
+                        </option>)}
+                    </select>
+                    {!showAllProjects && favoriteProjectIds.length > 0 && (
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.75em', marginTop: '5px' }}>
+                            目前只顯示 {favoriteProjectIds.length} 個常用 Project。
+                        </div>
+                    )}
                 </div>
 
-                <div style={{ marginBottom: '10px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px' }}>Comments</label>
-                    <input type="text" value={comments} onChange={e => setComments(e.target.value)} style={{ width: '100%', padding: '8px', background: '#333', color: 'white', border: '1px solid #444' }} />
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                    <button onClick={() => setIssueMode('existing')} style={{
+                        flex: 1, padding: '9px', background: issueMode === 'existing' ? 'var(--primary)' : '#25252c'
+                    }}>選擇既有 Issue</button>
+                    <button onClick={() => setIssueMode('new')} style={{
+                        flex: 1, padding: '9px', background: issueMode === 'new' ? '#22c55e' : '#25252c'
+                    }}>直接建立新 Issue</button>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-                    {isEditMode && <button onClick={handleDelete} style={{ background: '#ef4444' }}>Delete</button>}
-                    <div style={{ display: 'flex', gap: '10px', marginLeft: 'auto' }}>
-                        <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #555' }}>Cancel</button>
-                        <button onClick={handleSave} disabled={!projectId && !isEditMode} style={{ background: (!projectId && !isEditMode) ? '#555' : '#3b82f6', cursor: (!projectId && !isEditMode) ? 'not-allowed' : 'pointer' }}>Save</button>
+                {issueMode === 'existing' ? (
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>Issue（可留空，直接記在 Project）</label>
+                        <select value={issueId} onChange={event => setIssueId(event.target.value ? Number(event.target.value) : '')}
+                            style={fieldStyle} disabled={!projectId || loadingIssues}>
+                            <option value="">{loadingIssues ? '讀取 Issue 中…' : '不指定 Issue'}</option>
+                            {issues.map(issue => <option key={issue.id} value={issue.id}>#{issue.id} · {issue.subject}</option>)}
+                        </select>
+                    </div>
+                ) : (
+                    <div style={{ marginBottom: '16px', padding: '14px', borderRadius: '10px', background: 'rgba(34,197,94,.05)', border: '1px solid rgba(34,197,94,.16)' }}>
+                        <div style={{ marginBottom: '12px' }}>
+                            <label style={labelStyle}>新 Issue 名稱 *</label>
+                            <input value={newIssueSubject} onChange={event => setNewIssueSubject(event.target.value)}
+                                placeholder="例如：Customer weekly sync" style={fieldStyle} disabled={!projectId} />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                            <div>
+                                <label style={labelStyle}>HW Version *</label>
+                                <input value={hwVersion} onChange={event => setHwVersion(event.target.value)} style={fieldStyle} placeholder="N/A" />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>FW Version *</label>
+                                <input value={fwVersion} onChange={event => setFwVersion(event.target.value)} style={fieldStyle} placeholder="N/A" />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Issue Finder *</label>
+                                <input value={issueFinder} onChange={event => setIssueFinder(event.target.value)} style={fieldStyle} placeholder="FW&SW RD" />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Bug Create After MP *</label>
+                                <select value={bugCreateAfterMp} onChange={event => setBugCreateAfterMp(event.target.value)} style={fieldStyle}>
+                                    <option value="0">No</option>
+                                    <option value="1">Yes</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '0.75em', marginTop: '8px' }}>
+                            這些值會記住並沿用到下一次建立 Issue。
+                        </div>
+                    </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                    <div>
+                        <label style={labelStyle}>開始時間</label>
+                        <input type="time" value={startTime} onChange={event => {
+                            const value = event.target.value;
+                            setStartTime(value);
+                            setEndTime(endTimeFromWorkingHours(value, hours));
+                        }} style={fieldStyle} />
+                    </div>
+                    <div>
+                        <label style={labelStyle}>結束時間</label>
+                        <input type="time" value={endTime} onChange={event => {
+                            const value = event.target.value;
+                            setEndTime(value);
+                            const nextHours = workingHoursBetween(startTime, value);
+                            if (nextHours > 0) setHours(nextHours);
+                        }} style={fieldStyle} />
+                    </div>
+                    <div>
+                        <label style={labelStyle}>工時 *</label>
+                        <input type="number" min="0.25" max="24" step="0.25" value={hours}
+                            onChange={event => {
+                                const value = Number(event.target.value);
+                                setHours(value);
+                                setEndTime(endTimeFromWorkingHours(startTime, value));
+                            }} style={fieldStyle} />
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Activity *</label>
+                        <select value={activityId} onChange={event => setActivityId(Number(event.target.value))} style={fieldStyle}>
+                            {activityList.map(activity => <option key={activity.id} value={activity.id}>{activity.name}</option>)}
+                        </select>
+                    </div>
+                </div>
+
+                <div style={{ marginBottom: '16px' }}>
+                    <label style={labelStyle}>工作內容 / Comments</label>
+                    <input value={comments} onChange={event => setComments(event.target.value)} style={fieldStyle}
+                        placeholder="會寫入 Redmine 工時說明" />
+                </div>
+
+                <div style={{ margin: '-6px 0 18px', color: 'var(--text-secondary)', fontSize: '0.76em' }}>
+                    RD Function Team 將固定使用 <strong style={{ color: '#c4b5fd' }}>SW_OS/BSP</strong>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                    {isEditMode ? <button onClick={handleDelete} style={{ background: '#7f1d1d' }}>刪除</button> : <span />}
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <button onClick={onClose} style={{ background: 'transparent', border: '1px solid #555' }}>取消</button>
+                        <button onClick={handleSave} disabled={saving || !projectId} style={{
+                            background: saving || !projectId ? '#444' : 'var(--accent-gradient)', minWidth: '120px'
+                        }}>{saving ? '處理中…' : issueMode === 'new' ? '建立並登錄' : '儲存工時'}</button>
                     </div>
                 </div>
             </div>

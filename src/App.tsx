@@ -6,6 +6,7 @@ import PlannerView from './components/PlannerView'
 import CalendarView from './components/CalendarView'
 import ProjectsView from './components/ProjectsView'
 import SettingsView from './components/SettingsView'
+import OutlookSyncView from './components/OutlookSyncView'
 import './App.css'
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
                     <Route path="dashboard" element={<DashboardView />} />
                     <Route path="planner" element={<PlannerView />} />
                     <Route path="calendar" element={<CalendarView />} />
+                    <Route path="outlook" element={<OutlookSyncView />} />
                     <Route path="projects" element={<ProjectsView />} />
                     <Route path="settings" element={<SettingsView />} />
                 </Route>

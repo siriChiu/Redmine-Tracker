@@ -40,6 +40,9 @@ const Sidebar = () => {
             <NavLink to="/calendar" style={linkStyle} title="Calendar">
                 <span className="icon">📅</span>
             </NavLink>
+            <NavLink to="/outlook" style={linkStyle} title="Outlook Import">
+                <span className="icon">✉️</span>
+            </NavLink>
             <NavLink to="/projects" style={linkStyle} title="Projects">
                 <span className="icon">📁</span>
             </NavLink>

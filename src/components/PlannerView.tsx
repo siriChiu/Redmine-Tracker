@@ -30,10 +30,8 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
 
     // New state for profile fields
     const [selectedActivityId, setSelectedActivityId] = useState<number | undefined>(undefined);
-    const [selectedRdTeam, setSelectedRdTeam] = useState<string>('N/A');
     const [selectedComment, setSelectedComment] = useState('');
 
-    const [alertTime, setAlertTime] = useState(localStorage.getItem('planner_alert_time') || '17:00');
     const [autoLogTime, setAutoLogTime] = useState(localStorage.getItem('planner_auto_log_time') || '18:00');
 
     const [profiles, setProfiles] = useState<any[]>([]);
@@ -169,7 +167,6 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
 
             // Set activity, rd_team and comment from profile
             setSelectedActivityId(profile.activity_id);
-            setSelectedRdTeam(profile.rd_function_team || 'N/A');
             setSelectedComment(profile.comments || '');
 
             // Handle both profile (issue_id) and history task (redmine_issue_id) formats
@@ -243,7 +240,7 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
             is_logged: false,
             date: today,
             activity_id: selectedActivityId,
-            rd_function_team: selectedRdTeam,
+            rd_function_team: 'SW_OS/BSP',
             comments: selectedComment,
             project_id: selectedIssueId ? undefined : (profiles.find(p => p.name === selectedProfileName)?.project_id),
             is_paused: false
@@ -261,7 +258,6 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
             setSelectedIssueId('');
             setSelectedProfileName(''); // Reset profile name
             setSelectedActivityId(undefined);
-            setSelectedRdTeam('N/A');
             setSelectedComment('');
             setNewHours('8');
             fetchTasks(true); // Prevent auto-copy when adding (though unlikely to trigger it)
@@ -369,7 +365,6 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
             setSelectedProfileName('');
             setSelectedIssueId('');
             setSelectedActivityId(undefined);
-            setSelectedRdTeam('N/A');
             setSelectedComment('');
 
             addToast("Saved task deleted", 'success');
@@ -381,7 +376,6 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
     };
 
     const handleSaveSettings = () => {
-        localStorage.setItem('planner_alert_time', alertTime);
         localStorage.setItem('planner_auto_log_time', autoLogTime);
         addToast("Settings saved!", 'success');
     };
@@ -446,23 +440,13 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
             const now = new Date();
             const currentTime = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-            if (currentTime === alertTime) {
-                checkAlert(true);
-            }
-
             if (currentTime === autoLogTime) {
                 checkAutoLog(true);
             }
         }, 60000); // Check every minute
 
         return () => clearInterval(interval);
-    }, [alertTime, autoLogTime]);
-
-    const checkAlert = (force = false) => {
-        if (force) {
-            addToast("🔔 Time Check! Don't forget to update your daily log!", 'info');
-        }
-    };
+    }, [autoLogTime]);
 
     const checkAutoLog = async (force = false) => {
         if (force) {
@@ -545,16 +529,7 @@ const PlannerView: React.FC<Partial<PlannerViewProps>> = ({ refreshTrigger }) =>
 
                     {/* Quick Settings Bar */}
                     <div className="glass-panel" style={{ padding: '8px 15px', display: 'flex', gap: '15px', alignItems: 'center', borderRadius: '20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>Alert:</span>
-                            <input
-                                type="time"
-                                value={alertTime}
-                                onChange={(e) => setAlertTime(e.target.value)}
-                                onBlur={handleSaveSettings}
-                                style={{ background: 'transparent', border: 'none', color: 'white', fontFamily: 'inherit', fontSize: '0.9em', cursor: 'pointer' }}
-                            />
-                        </div>
+                        <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>置頂提醒請至 Settings 設定</span>
                         <div style={{ width: '1px', height: '15px', background: 'rgba(255,255,255,0.1)' }}></div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontSize: '0.8em', color: 'var(--text-secondary)' }}>Auto-Log:</span>

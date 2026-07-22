@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: read
+  packages: write
+  releases: write
+
+jobs:
+  build-package-and-publish:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+    steps:
+      - name: Check out tagged revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install release dependencies
+        shell: powershell
+        run: |
+          npm ci
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+          Get-Command curl.exe -ErrorAction Stop | Out-Null
+          Get-Command tar.exe -ErrorAction Stop | Out-Null
+
+      - name: Validate configuration and script syntax
+        shell: powershell
+        run: |
+          npm run ci:validate
+          npm run ci:syntax
+
+      - name: Run backend tests
+        shell: powershell
+        run: npm run test:backend
+
+      - name: Build Windows release
+        shell: powershell
+        run: npm run dist
+
+      - name: Verify release installer
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-artifacts.ps1 -Mode Release
+
+      - name: Create versioned and latest package files
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ gitea.ref_name }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package-release.ps1 -Tag $env:RELEASE_TAG
+
+      - name: Verify package contents
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\verify-artifacts.ps1 -Mode Package
+
+      - name: Publish generic packages and Gitea release assets
+        shell: powershell
+        env:
+          GITEA_SERVER_URL: ${{ gitea.server_url }}
+          GITEA_REPOSITORY: ${{ gitea.repository }}
+          GITEA_REPOSITORY_OWNER: ${{ gitea.repository_owner }}
+          RELEASE_TAG: ${{ gitea.ref_name }}
+          PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          ACTION_GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+        run: |
+          $repositoryName = ($env:GITEA_REPOSITORY -split '/', 2)[1]
+          if ([string]::IsNullOrWhiteSpace($repositoryName)) {
+            throw "Unable to determine repository name from $env:GITEA_REPOSITORY"
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-gitea.ps1 `
+            -ServerUrl $env:GITEA_SERVER_URL `
+            -Owner $env:GITEA_REPOSITORY_OWNER `
+            -Repository $repositoryName `
+            -PackageName "redmine-tracker" `
+            -Tag $env:RELEASE_TAG `
+            -PackageToken $env:PACKAGE_TOKEN `
+            -GiteaToken $env:ACTION_GITEA_TOKEN `
+            -ReleaseToken $env:RELEASE_TOKEN

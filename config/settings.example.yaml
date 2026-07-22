@@ -1,0 +1,13 @@
+# Copy this file to the application settings location through the Settings page.
+# Never commit a real api_key.
+redmine_url: "https://redmine.example.com"
+api_key: ""
+
+alert_time: "17:00"
+daily_required_hours: 8
+weekly_required_hours: 40
+always_on_top: true
+
+favorite_project_ids: []
+profiles: []
+outlook_mappings: []

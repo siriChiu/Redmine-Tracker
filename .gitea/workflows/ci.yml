@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Node.js dependencies
+        shell: powershell
+        run: npm ci
+
+      - name: Install Python build dependencies
+        shell: powershell
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+
+      - name: Validate configuration files
+        shell: powershell
+        run: npm run ci:validate
+
+      - name: Check script syntax
+        shell: powershell
+        run: npm run ci:syntax
+
+      - name: Run backend tests
+        shell: powershell
+        run: npm run test:backend
+
+      - name: Build backend executable
+        shell: powershell
+        run: npm run build:backend
+
+      - name: Build frontend
+        shell: powershell
+        run: npm run build
+
+      - name: Verify main build outputs
+        shell: powershell
+        run: npm run ci:verify
+
+      - name: Verify CLI help
+        shell: powershell
+        run: node bin\cli.js --help
+
+      - name: Run backend smoke test on a free port
+        shell: powershell
+        run: npm run ci:smoke

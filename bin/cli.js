@@ -5,6 +5,21 @@ const path = require('path');
 const { execSync, spawn } = require('child_process');
 const readline = require('readline');
 
+const wantsHelp = process.argv.includes('--help') || process.argv.includes('-h');
+
+if (wantsHelp) {
+    console.log(`Redmine Tracker CLI
+
+Usage:
+  redmine-tracker [--help]
+
+Options:
+  -h, --help  Show this help message
+
+Without options, the CLI starts the interactive project setup wizard.`);
+    process.exit(0);
+}
+
 console.log("========================================");
 console.log("      Redmine Tracker CLI Tool");
 console.log("========================================");

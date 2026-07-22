@@ -4,16 +4,17 @@ import uvicorn
 import os
 import sys
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, List, Optional
 import yaml
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import signal
 
 # Import the existing Redmine utility
 # Adjust path if necessary since we moved files
 sys.path.append(os.path.dirname(__file__))
 from packages.redmine import redmine_utility as rm
+from outlook_calendar import OutlookCalendarError, match_mapping, read_default_calendar
 
 app = FastAPI()
 
@@ -58,10 +59,12 @@ class Settings(BaseModel):
     api_key: str
     redmine_url: Optional[str] = "http://advrm.advantech.com:3002/"
     alert_time: Optional[str] = "17:00"
-    alert_time: Optional[str] = "17:00"
     auto_log_time: Optional[str] = "18:00"
     calendar_start_time: Optional[str] = "06:00"
     calendar_end_time: Optional[str] = "21:00"
+    reminders_enabled: Optional[bool] = True
+    daily_target_hours: Optional[float] = 8.0
+    weekly_target_hours: Optional[float] = 40.0
 
 # Global Redmine Instance
 redmine_client = None
@@ -81,6 +84,7 @@ if not os.path.exists(DATA_DIR):
 CONFIG_FILE = os.path.join(DATA_DIR, "settings.yaml")
 CACHE_FILE = os.path.join(DATA_DIR, "cache_data.yaml")
 TASKS_FILE = os.path.join(DATA_DIR, "tasks.json")
+OUTLOOK_HISTORY_FILE = os.path.join(DATA_DIR, "outlook_log_history.json")
 
 print(f"Data Directory: {DATA_DIR}")
 
@@ -111,6 +115,20 @@ def save_cache(data):
     with open(CACHE_FILE, 'w') as f:
         yaml.dump(data, f)
 
+def load_outlook_history():
+    if not os.path.exists(OUTLOOK_HISTORY_FILE):
+        return {}
+    try:
+        with open(OUTLOOK_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+def save_outlook_history(data):
+    with open(OUTLOOK_HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 def get_redmine_client():
     global redmine_client
     if redmine_client:
@@ -129,7 +147,45 @@ def get_redmine_client():
             return None
     return None
 
-def update_cache_with_entry(entry_id, start_time=None):
+def _safe_resource_attr(resource, name, default=None):
+    """Read a python-redmine attribute without breaking on sparse API resources."""
+    if resource is None:
+        return default
+    try:
+        value = getattr(resource, name)
+        return default if value is None else value
+    except Exception:
+        return default
+
+def serialize_time_entry(entry, start_time=None, end_time=None):
+    """Convert a possibly sparse Redmine time entry into Calendar/cache data."""
+    project = _safe_resource_attr(entry, 'project')
+    issue = _safe_resource_attr(entry, 'issue')
+    user = _safe_resource_attr(entry, 'user')
+    activity = _safe_resource_attr(entry, 'activity')
+
+    data = {
+        "id": _safe_resource_attr(entry, 'id'),
+        "project": _safe_resource_attr(project, 'name', ''),
+        "project_id": _safe_resource_attr(project, 'id'),
+        "issue": _safe_resource_attr(issue, 'id'),
+        "issue_subject": _safe_resource_attr(issue, 'subject'),
+        "user": _safe_resource_attr(user, 'name', ''),
+        "activity": _safe_resource_attr(activity, 'name', ''),
+        "activity_id": _safe_resource_attr(activity, 'id'),
+        "hours": _safe_resource_attr(entry, 'hours', 0),
+        "comments": _safe_resource_attr(entry, 'comments', ''),
+        "spent_on": str(_safe_resource_attr(entry, 'spent_on', '')),
+        "created_on": str(_safe_resource_attr(entry, 'created_on', '')),
+        "updated_on": str(_safe_resource_attr(entry, 'updated_on', '')),
+    }
+    if start_time:
+        data['start_time'] = start_time
+    if end_time:
+        data['end_time'] = end_time
+    return data
+
+def update_cache_with_entry(entry_id, start_time=None, end_time=None):
     client = get_redmine_client()
     if not client:
         return
@@ -140,26 +196,11 @@ def update_cache_with_entry(entry_id, start_time=None):
         if 'time_entries' not in cache:
             cache['time_entries'] = []
             
-        # Remove existing if any
-        cache['time_entries'] = [e for e in cache['time_entries'] if e['id'] != entry_id]
-        
-        # Add new
-        new_entry = {
-            "id": entry.id,
-            "project": entry.project.name,
-            "issue": entry.issue.id if hasattr(entry, 'issue') else None,
-            "user": entry.user.name,
-            "activity": entry.activity.name,
-            "hours": entry.hours,
-            "comments": entry.comments,
-            "spent_on": str(entry.spent_on),
-            "created_on": str(entry.created_on),
-            "updated_on": str(entry.updated_on)
-        }
-        
-        if start_time:
-            new_entry['start_time'] = start_time
-            
+        existing_entry = next((item for item in cache['time_entries'] if item.get('id') == entry_id), None)
+        cache['time_entries'] = [item for item in cache['time_entries'] if item.get('id') != entry_id]
+        remembered_start_time = start_time or (existing_entry or {}).get('start_time')
+        remembered_end_time = end_time or (existing_entry or {}).get('end_time')
+        new_entry = serialize_time_entry(entry, remembered_start_time, remembered_end_time)
         cache['time_entries'].append(new_entry)
         
         save_cache(cache)
@@ -171,6 +212,13 @@ def remove_from_cache(entry_id):
     if 'time_entries' in cache:
         cache['time_entries'] = [e for e in cache['time_entries'] if e['id'] != entry_id]
         save_cache(cache)
+    history = load_outlook_history()
+    updated_history = {
+        event_id: item for event_id, item in history.items()
+        if item.get('time_entry_id') != entry_id
+    }
+    if len(updated_history) != len(history):
+        save_outlook_history(updated_history)
 
 @app.post("/api/settings")
 def save_settings(settings: Settings):
@@ -183,6 +231,9 @@ def save_settings(settings: Settings):
         data['auto_log_time'] = settings.auto_log_time
         data['calendar_start_time'] = settings.calendar_start_time
         data['calendar_end_time'] = settings.calendar_end_time
+        data['reminders_enabled'] = settings.reminders_enabled
+        data['daily_target_hours'] = settings.daily_target_hours
+        data['weekly_target_hours'] = settings.weekly_target_hours
         
         with open(CONFIG_FILE, 'w') as f:
             yaml.dump(data, f)
@@ -208,11 +259,64 @@ def get_settings():
         "api_key": data.get('api_key', ""),
         "redmine_url": data.get('redmine_url', "http://advrm.advantech.com:3002/"),
         "alert_time": data.get('alert_time', "17:00"),
-        "alert_time": data.get('alert_time', "17:00"),
         "auto_log_time": data.get('auto_log_time', "18:00"),
         "calendar_start_time": data.get('calendar_start_time', "06:00"),
-        "calendar_end_time": data.get('calendar_end_time', "21:00")
+        "calendar_end_time": data.get('calendar_end_time', "21:00"),
+        "reminders_enabled": data.get('reminders_enabled', True),
+        "daily_target_hours": data.get('daily_target_hours', 8.0),
+        "weekly_target_hours": data.get('weekly_target_hours', 40.0)
     }
+
+class CalendarMapping(BaseModel):
+    id: str
+    title_pattern: str
+    match_type: str = "contains"
+    project_id: int
+    project_name: Optional[str] = None
+    issue_id: Optional[int] = None
+    issue_name: Optional[str] = None
+    activity_id: int = 9
+    rd_function_team: str = "SW_OS/BSP"
+    comments: Optional[str] = None
+    enabled: bool = True
+
+@app.get("/api/outlook/mappings")
+def get_calendar_mappings():
+    return load_settings_data().get('calendar_mappings', [])
+
+@app.post("/api/outlook/mappings")
+def save_calendar_mappings(mappings: List[CalendarMapping]):
+    data = load_settings_data()
+    clean_mappings = []
+    for mapping in mappings:
+        item = mapping.dict()
+        item['rd_function_team'] = 'SW_OS/BSP'
+        item['title_pattern'] = item['title_pattern'].strip()
+        item['match_type'] = 'exact' if item.get('match_type') == 'exact' else 'contains'
+        if not item['title_pattern']:
+            return {"error": "Every mapping needs a calendar title pattern."}
+        clean_mappings.append(item)
+    data['calendar_mappings'] = clean_mappings
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    return {"status": "success", "mappings": clean_mappings}
+
+@app.get("/api/outlook/events")
+def get_outlook_events(from_date: str, to_date: str):
+    try:
+        events = read_default_calendar(from_date, to_date)
+        mappings = load_settings_data().get('calendar_mappings', [])
+        history = load_outlook_history()
+        for event in events:
+            mapping = match_mapping(event['subject'], mappings)
+            event['mapping'] = mapping
+            logged = history.get(event['id'])
+            event['logged_entry_id'] = logged.get('time_entry_id') if logged else None
+        return events
+    except OutlookCalendarError as exc:
+        return {"error": str(exc), "code": "outlook_unavailable"}
+    except Exception as exc:
+        return {"error": str(exc), "code": "outlook_error"}
 
 class Profile(BaseModel):
     name: str
@@ -220,7 +324,7 @@ class Profile(BaseModel):
     issue_id: int
     activity_id: int
     comments: Optional[str] = ""
-    rd_function_team: Optional[str] = "N/A"
+    rd_function_team: Optional[str] = "SW_OS/BSP"
     project_name: Optional[str] = None
     issue_name: Optional[str] = None
 
@@ -240,12 +344,19 @@ def save_profile(profile: Profile):
             data = yaml.safe_load(f) or {}
     
     profiles = data.get('profiles', [])
-    # Update existing or append
-    existing = next((p for p in profiles if p['name'] == profile.name), None)
+    profile_data = profile.model_dump()
+    profile_data['rd_function_team'] = 'SW_OS/BSP'
+    # An Issue can own only one reusable profile. Match by Issue ID first so
+    # similarly named Issues from different projects never overwrite each other.
+    existing = next((p for p in profiles if (
+        profile.issue_id > 0 and int(p.get('issue_id') or 0) == profile.issue_id
+    )), None)
+    if not existing:
+        existing = next((p for p in profiles if p.get('name') == profile.name), None)
     if existing:
-        existing.update(profile.dict())
+        existing.update(profile_data)
     else:
-        profiles.append(profile.dict())
+        profiles.append(profile_data)
     
     data['profiles'] = profiles
     
@@ -280,6 +391,24 @@ def get_projects():
     except Exception as e:
         return {"error": str(e)}
 
+class FavoriteProjects(BaseModel):
+    project_ids: List[int]
+
+@app.get("/api/favorite_projects")
+def get_favorite_projects():
+    project_ids = load_settings_data().get('favorite_project_ids', [])
+    return [int(project_id) for project_id in project_ids if str(project_id).isdigit()]
+
+@app.post("/api/favorite_projects")
+def save_favorite_projects(favorites: FavoriteProjects):
+    # Keep the list intentionally short so the quick picker remains useful.
+    project_ids = list(dict.fromkeys(project_id for project_id in favorites.project_ids if project_id > 0))[:20]
+    data = load_settings_data()
+    data['favorite_project_ids'] = project_ids
+    with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    return {"status": "success", "project_ids": project_ids}
+
 @app.get("/api/redmine/issues")
 def get_issues(project_id: Optional[str] = None, assigned_to_id: Optional[str] = None, status_id: Optional[str] = 'open', limit: int = 100):
     client = get_redmine_client()
@@ -304,6 +433,102 @@ def get_issues(project_id: Optional[str] = None, assigned_to_id: Optional[str] =
     except Exception as e:
         print(f"Error fetching issues: {e}")
         return {"error": str(e)}
+
+class IssueCreate(BaseModel):
+    project_id: int
+    subject: str
+    description: Optional[str] = ""
+    tracker_id: Optional[int] = None
+    assign_to_me: bool = True
+    hw_version: str = "N/A"
+    fw_version: str = "N/A"
+    issue_finder: str = "FW&SW RD"
+    bug_create_after_mp: str = "0"
+
+@app.post("/api/redmine/issues")
+def create_issue(issue_data: IssueCreate):
+    """Create a usable Redmine issue without sending the user to another page."""
+    client = get_redmine_client()
+    if not client:
+        return {"error": "Redmine not configured"}
+
+    subject = issue_data.subject.strip()
+    if not subject:
+        return {"error": "Issue name is required."}
+
+    required_custom_fields = [
+        (27, "HW Version", issue_data.hw_version),
+        (15, "FW Version", issue_data.fw_version),
+        (26, "Issue Finder", issue_data.issue_finder),
+        (126, "Bug Create After MP", issue_data.bug_create_after_mp),
+    ]
+    empty_fields = [name for _field_id, name, value in required_custom_fields if not str(value or '').strip()]
+    if empty_fields:
+        return {"error": f"Required Redmine fields cannot be blank: {', '.join(empty_fields)}"}
+
+    try:
+        payload: dict[str, Any] = {
+            'project_id': issue_data.project_id,
+            'subject': subject,
+            'description': (issue_data.description or '').strip(),
+            'custom_fields': [
+                {'id': field_id, 'value': str(value).strip()}
+                for field_id, _name, value in required_custom_fields
+            ],
+        }
+
+        tracker_id = issue_data.tracker_id
+        if not tracker_id:
+            try:
+                project = client.redmine.project.get(issue_data.project_id, include=['trackers'])
+                trackers = list(getattr(project, 'trackers', []) or [])
+                if trackers:
+                    tracker_id = trackers[0].id
+            except Exception:
+                # Some Redmine versions do not expose trackers through the project API.
+                # In that case Redmine may apply its configured default tracker.
+                tracker_id = None
+        if not tracker_id:
+            try:
+                trackers = list(client.redmine.tracker.all())
+                if trackers:
+                    tracker_id = trackers[0].id
+            except Exception:
+                tracker_id = None
+        if tracker_id:
+            payload['tracker_id'] = tracker_id
+
+        if issue_data.assign_to_me:
+            try:
+                payload['assigned_to_id'] = client.redmine.user.get('current').id
+            except Exception:
+                pass
+
+        issue = client.redmine.issue.create(**payload)
+        created = {
+            "id": issue.id,
+            "subject": issue.subject,
+            "project_id": issue.project.id if hasattr(issue, 'project') else issue_data.project_id,
+            "project": {
+                "id": issue_data.project_id,
+                "name": getattr(getattr(issue, 'project', None), 'name', '')
+            }
+        }
+
+        cache = load_cache()
+        cached_issues = cache.setdefault('issues', [])
+        cached_issues = [item for item in cached_issues if item.get('id') != issue.id]
+        cached_issues.append({
+            "id": issue.id,
+            "subject": issue.subject,
+            "project_id": created['project_id']
+        })
+        cache['issues'] = sorted(cached_issues, key=lambda item: item.get('subject', '').casefold())
+        save_cache(cache)
+        return {"status": "success", "message": "Issue created", "issue": created}
+    except Exception as exc:
+        print(f"Error creating issue: {exc}")
+        return {"error": str(exc)}
 
 @app.get("/api/redmine/issue/{issue_id}")
 def get_issue_details(issue_id: int):
@@ -433,9 +658,14 @@ class TimeEntry(BaseModel):
     spent_on: str # YYYY-MM-DD
     hours: float
     activity_id: int
-    rd_function_team: Optional[str] = "N/A"
+    rd_function_team: Optional[str] = "SW_OS/BSP"
     comments: Optional[str] = ""
     start_time: Optional[str] = None
+    end_time: Optional[str] = None
+
+class OutlookTimeEntry(TimeEntry):
+    outlook_event_id: str
+    outlook_subject: str
 
 @app.post("/api/redmine/time_entries")
 def create_time_entry(entry: TimeEntry):
@@ -447,8 +677,8 @@ def create_time_entry(entry: TimeEntry):
         print(f"Creating time entry: {entry}")
         
         custom_field_id = 93
-        # Use provided value or default to N/A
-        custom_field_value = entry.rd_function_team if hasattr(entry, 'rd_function_team') and entry.rd_function_team else 'N/A'
+        # Company policy: the worklog team is fixed and is not user-editable.
+        custom_field_value = 'SW_OS/BSP'
         
         # When issue_id is present, project_id is implied and optional.
         # Providing both might cause validation errors if there's any mismatch 
@@ -470,18 +700,42 @@ def create_time_entry(entry: TimeEntry):
         created_entry = client.redmine.time_entry.create(**time_entry_data)
         
         # Update Cache
-        update_cache_with_entry(created_entry.id, start_time=entry.start_time)
+        update_cache_with_entry(created_entry.id, start_time=entry.start_time, end_time=entry.end_time)
         
         return {"status": "success", "message": "Time entry created", "id": created_entry.id}
     except Exception as e:
         print(f"Error creating time entry: {e}")
         return {"error": str(e)}
 
+@app.post("/api/outlook/time_entries")
+def create_outlook_time_entry(entry: OutlookTimeEntry):
+    history = load_outlook_history()
+    existing = history.get(entry.outlook_event_id)
+    if existing:
+        return {
+            "error": "This Outlook meeting has already been logged.",
+            "code": "already_logged",
+            "time_entry_id": existing.get('time_entry_id')
+        }
+
+    result = create_time_entry(TimeEntry(**entry.dict(exclude={
+        'outlook_event_id', 'outlook_subject'
+    })))
+    if result.get('status') == 'success':
+        history[entry.outlook_event_id] = {
+            "time_entry_id": result.get('id'),
+            "subject": entry.outlook_subject,
+            "spent_on": entry.spent_on,
+            "logged_at": datetime.now().isoformat(timespec='seconds')
+        }
+        save_outlook_history(history)
+    return result
+
 @app.get("/api/redmine/time_entries")
-def get_time_entries(from_date: Optional[str] = None, to_date: Optional[str] = None):
+def get_time_entries(from_date: Optional[str] = None, to_date: Optional[str] = None, refresh: bool = False):
     # Try cache first
     cache = load_cache()
-    if 'time_entries' in cache:
+    if 'time_entries' in cache and not refresh:
         entries = cache['time_entries']
         
         # Filter by date if provided
@@ -504,24 +758,30 @@ def get_time_entries(from_date: Optional[str] = None, to_date: Optional[str] = N
             
         entries = client.redmine.time_entry.filter(**filters)
         
+        cached_by_id = {
+            item.get('id'): item for item in cache.get('time_entries', [])
+            if isinstance(item, dict) and item.get('id') is not None
+        }
         entry_list = []
         for entry in entries:
-            entry_list.append({
-                "id": entry.id,
-                "project": entry.project.name,
-                "issue": entry.issue.id if hasattr(entry, 'issue') else None,
-                "issue_subject": entry.issue.subject if hasattr(entry, 'issue') else None,
-                "user": entry.user.name,
-                "activity": entry.activity.name,
-                "hours": entry.hours,
-                "comments": entry.comments,
-                "spent_on": entry.spent_on,
-                "created_on": entry.created_on,
-                "updated_on": entry.updated_on
-            })
-            
-        # We don't cache partial fetches here to avoid inconsistency.
-        # Cache is populated by Sync.
+            cached_entry = cached_by_id.get(_safe_resource_attr(entry, 'id'), {})
+            entry_list.append(serialize_time_entry(
+                entry,
+                cached_entry.get('start_time'),
+                cached_entry.get('end_time'),
+            ))
+
+        if refresh:
+            # Replace only the requested date range and retain local-only start times.
+            untouched_entries = []
+            for cached_entry in cache.get('time_entries', []):
+                spent_on = str(cached_entry.get('spent_on', ''))
+                inside_range = (not from_date or spent_on >= from_date) and (not to_date or spent_on <= to_date)
+                if not inside_range:
+                    untouched_entries.append(cached_entry)
+            cache['time_entries'] = untouched_entries + entry_list
+            save_cache(cache)
+
         return entry_list
     except Exception as e:
         return {"error": str(e)}
@@ -536,8 +796,8 @@ def update_time_entry(entry_id: int, entry: TimeEntry):
         print(f"Updating time entry {entry_id}: {entry}")
         
         custom_field_id = 93
-        # Use provided value or default to N/A
-        custom_field_value = entry.rd_function_team if hasattr(entry, 'rd_function_team') and entry.rd_function_team else 'N/A'
+        # Company policy: the worklog team is fixed and is not user-editable.
+        custom_field_value = 'SW_OS/BSP'
         
         time_entry_data = {
             'activity_id': entry.activity_id,
@@ -561,7 +821,7 @@ def update_time_entry(entry_id: int, entry: TimeEntry):
         client.redmine.time_entry.update(entry_id, **time_entry_data)
         
         # Update Cache
-        update_cache_with_entry(entry_id, start_time=entry.start_time)
+        update_cache_with_entry(entry_id, start_time=entry.start_time, end_time=entry.end_time)
         
         return {"status": "success", "message": "Time entry updated"}
     except Exception as e:
@@ -609,7 +869,7 @@ class Task(BaseModel):
     last_logged_date: Optional[str] = None # YYYY-MM-DD
     time_entry_id: Optional[int] = None # Added for deletion support
     activity_id: Optional[int] = None
-    rd_function_team: Optional[str] = "N/A"
+    rd_function_team: Optional[str] = "SW_OS/BSP"
     comments: Optional[str] = ""
     project_id: Optional[int] = None
 
@@ -794,8 +1054,7 @@ def log_batch(tasks: List[Task]):
             # Use task's comments or fall back to task name
             comments = task.comments if task.comments else task.name
             
-            # Use task's rd_function_team or default to N/A
-            rd_function_team = task.rd_function_team if task.rd_function_team else 'N/A'
+            rd_function_team = 'SW_OS/BSP'
             
             time_entry_data = {
                 'hours': task.planned_hours,
@@ -864,6 +1123,60 @@ def get_daily_hours():
         print(f"Error fetching daily hours: {e}")
         return {"hours": 0}
 
+@app.get("/api/redmine/time_summary")
+def get_time_summary(date_str: Optional[str] = None, refresh: bool = False):
+    """Return daily and Monday-to-date hours for desktop reminder checks."""
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else date.today()
+    except ValueError:
+        return {"error": "date_str must use YYYY-MM-DD format"}
+
+    week_start = target_date - timedelta(days=target_date.weekday())
+    entries = None
+    source = 'cache'
+
+    if refresh:
+        client = get_redmine_client()
+        if client:
+            try:
+                user = client.redmine.user.get('current')
+                live_entries = client.redmine.time_entry.filter(
+                    user_id=user.id,
+                    from_date=week_start,
+                    to_date=target_date,
+                    limit=500
+                )
+                entries = [
+                    {"spent_on": str(item.spent_on), "hours": float(item.hours)}
+                    for item in live_entries
+                ]
+                source = 'redmine'
+            except Exception as exc:
+                print(f"Live reminder summary failed, falling back to cache: {exc}")
+
+    if entries is None:
+        entries = load_cache().get('time_entries', [])
+
+    day_key = str(target_date)
+    week_start_key = str(week_start)
+    daily_hours = sum(
+        float(item.get('hours', 0) or 0)
+        for item in entries
+        if str(item.get('spent_on')) == day_key
+    )
+    weekly_hours = sum(
+        float(item.get('hours', 0) or 0)
+        for item in entries
+        if week_start_key <= str(item.get('spent_on')) <= day_key
+    )
+    return {
+        "date": day_key,
+        "week_start": week_start_key,
+        "daily_hours": round(daily_hours, 2),
+        "weekly_hours": round(weekly_hours, 2),
+        "source": source
+    }
+
 @app.post("/api/sync")
 def sync_data():
     client = get_redmine_client()
@@ -894,12 +1207,15 @@ def sync_data():
         print("Syncing time entries...")
         from datetime import date, timedelta
         
-        # Preserve start_time from existing cache
-        existing_start_times = {}
-        if 'time_entries' in cache:
-            for e in cache['time_entries']:
-                if 'start_time' in e:
-                    existing_start_times[e['id']] = e['start_time']
+        # Redmine has no start/end time fields, so preserve our Calendar metadata.
+        existing_calendar_times = {
+            item.get('id'): {
+                'start_time': item.get('start_time'),
+                'end_time': item.get('end_time'),
+            }
+            for item in cache.get('time_entries', [])
+            if isinstance(item, dict) and item.get('id') is not None
+        }
         
         today = date.today()
         start_date = today - timedelta(days=30)
@@ -909,26 +1225,12 @@ def sync_data():
         
         entry_list = []
         for entry in entries:
-            new_entry_dict = {
-                "id": entry.id,
-                "project": entry.project.name,
-                "project_id": entry.project.id,
-                "issue": entry.issue.id if hasattr(entry, 'issue') else None,
-                "user": entry.user.name,
-                "activity": entry.activity.name,
-                "activity_id": entry.activity.id,
-                "hours": entry.hours,
-                "comments": entry.comments,
-                "spent_on": str(entry.spent_on),
-                "created_on": str(entry.created_on),
-                "updated_on": str(entry.updated_on)
-            }
-            
-            # Restore start_time if it existed
-            if entry.id in existing_start_times:
-                new_entry_dict['start_time'] = existing_start_times[entry.id]
-                
-            entry_list.append(new_entry_dict)
+            calendar_times = existing_calendar_times.get(_safe_resource_attr(entry, 'id'), {})
+            entry_list.append(serialize_time_entry(
+                entry,
+                calendar_times.get('start_time'),
+                calendar_times.get('end_time'),
+            ))
             
         cache['time_entries'] = entry_list
         
@@ -975,12 +1277,6 @@ def delete_task_history(name: str):
     save_tasks_data(all_tasks)
     return {"status": "success", "message": f"Deleted history for '{name}'"}
 
-
-
-# Debug: Print all routes
-for route in app.routes:
-    print(f"Route: {route.path} {route.methods}")
-
 if __name__ == "__main__":
     # Handle signals for graceful shutdown
     def signal_handler(sig, frame):
@@ -990,7 +1286,10 @@ if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
-    port = 8000
+    try:
+        port = int(os.getenv('REDMINE_TRACKER_PORT', '8000'))
+    except ValueError:
+        port = 8000
     
     # Check if running in frozen mode (PyInstaller)
     if getattr(sys, 'frozen', False):
@@ -1007,10 +1306,9 @@ if __name__ == "__main__":
         except (Exception, SystemExit) as e:
             print(f"CRASH: {e}", flush=True)
             if "Errno 10048" in str(e):
-                print("\nCRITICAL ERROR: PORT 8000 IS BUSY", flush=True)
-                print("Please close other instances of Redmine Tracker or kill 'backend.exe' / 'python.exe' in Task Manager.\n", flush=True)
+                print(f"\nCRITICAL ERROR: PORT {port} IS BUSY", flush=True)
             import traceback
             traceback.print_exc()
     else:
-        # Enable reload for development
-        uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+        # Electron owns the child process lifecycle, so avoid a reload subprocess.
+        uvicorn.run(app, host="127.0.0.1", port=port, reload=False)

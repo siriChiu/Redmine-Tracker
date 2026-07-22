@@ -4,3 +4,4 @@ python-redmine
 pyyaml
 pydantic
 pyinstaller
+pywin32

@@ -1,7 +1,8 @@
 param(
     [ValidateSet("CI", "Release", "Package")]
     [string]$Mode = "CI",
-    [string]$PackageDirectory = "release-bundle"
+    [string]$PackageDirectory = "release-bundle",
+    [string]$PythonExecutable = ".\.venv\Scripts\python.exe"
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,8 +61,16 @@ try {
                 throw "No frontend assets were generated in dist/assets."
             }
             Write-Host "Verified frontend asset count: $($assets.Count)"
+            & $PythonExecutable scripts/verify_pyinstaller_runtime.py backend/dist/backend.exe
+            if ($LASTEXITCODE -ne 0) {
+                throw "PyInstaller runtime verification failed."
+            }
         }
         "Release" {
+            & $PythonExecutable scripts/verify_pyinstaller_runtime.py backend/dist/backend.exe
+            if ($LASTEXITCODE -ne 0) {
+                throw "PyInstaller runtime verification failed."
+            }
             $installers = Get-ChildItem -LiteralPath "release" -Filter "*.exe" -File -ErrorAction Stop
             if ($installers.Count -eq 0) {
                 throw "No Windows installer was generated in release."

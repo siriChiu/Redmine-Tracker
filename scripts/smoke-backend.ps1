@@ -16,7 +16,17 @@ $listener.Start()
 $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
 $listener.Stop()
 
-$previousPort = $env:REDMINE_TRACKER_PORT
+$environmentNames = @("PATH", "PYTHONHOME", "PYTHONPATH", "CONDA_PREFIX", "REDMINE_TRACKER_PORT")
+$previousEnvironment = @{}
+foreach ($name in $environmentNames) {
+    $item = Get-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+    $previousEnvironment[$name] = if ($null -eq $item) { $null } else { $item.Value }
+}
+
+$env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+foreach ($name in @("PYTHONHOME", "PYTHONPATH", "CONDA_PREFIX")) {
+    Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+}
 $env:REDMINE_TRACKER_PORT = $port.ToString()
 $process = $null
 
@@ -52,10 +62,12 @@ finally {
         & taskkill.exe /PID $process.Id /T /F | Out-Null
     }
 
-    if ($null -eq $previousPort) {
-        Remove-Item Env:REDMINE_TRACKER_PORT -ErrorAction SilentlyContinue
-    }
-    else {
-        $env:REDMINE_TRACKER_PORT = $previousPort
+    foreach ($name in $environmentNames) {
+        if ($null -eq $previousEnvironment[$name]) {
+            Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
+        }
+        else {
+            Set-Item -LiteralPath "Env:$name" -Value $previousEnvironment[$name]
+        }
     }
 }

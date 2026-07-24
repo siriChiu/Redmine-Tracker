@@ -179,7 +179,7 @@ To create an optimized installer (Windows `.exe`):
 ```bash
 npm run dist
 ```
-*   This packages the Python backend into a single executable using `PyInstaller`.
+*   This packages the Python backend into a single executable using `PyInstaller`. The build wrapper adds the base Python native DLL directories and fails when PyInstaller reports an unresolved runtime library.
 *   It builds the React frontend.
 *   It bundles everything into an Electron installer using `electron-builder`.
 *   **Output**: Check the `release/` directory.
@@ -211,14 +211,16 @@ npm run dist:debug
 
 ## 🚦 Gitea Actions CI/CD
 
-The workflows are intentionally Windows-native because the backend depends on `pywin32`, reads classic Outlook through COM, and the release is an NSIS `.exe`. No cross compiler is used or supported by the current pipeline. The Gitea runner label `windows-latest` must resolve to a Windows runner with PowerShell, Node setup support, Python setup support, `curl.exe`, and `tar.exe`.
+The workflows are intentionally Windows-native because the backend depends on `pywin32`, reads classic Outlook through COM, and the release is an NSIS `.exe`. No cross compiler is used or supported by the current pipeline. The Gitea runner label `windows-latest` must resolve to a Windows runner with PowerShell, Node setup support, a preinstalled 64-bit Python 3.11 or newer, `curl.exe`, and `tar.exe`.
+
+The workflow resolves an installed Python instead of using `actions/setup-python`. This avoids registry writes that fail on non-administrator self-hosted Windows runners. Set the runner's `PYTHON` environment variable when Python is installed in a non-standard location. A clean `.venv` is recreated for each job.
 
 ### Trigger rules
 
 *   **CI** (`.gitea/workflows/ci.yml`) runs for every branch push and every pull request. Tag pushes are handled only by CD.
 *   **CD** (`.gitea/workflows/release.yml`) runs only when a tag is pushed, for example `v1.00`.
 
-CI checks out the repository, installs locked Node dependencies and Python build dependencies, validates JSON/YAML/configuration and script syntax, runs backend tests, builds the backend and frontend, verifies their outputs, runs `redmine-tracker --help`, and starts the packaged backend briefly on a dynamically selected free port.
+CI checks out the repository, installs locked Node dependencies and Python build dependencies, validates JSON/YAML/configuration and script syntax, runs backend tests, builds the backend and frontend, verifies their outputs, runs `redmine-tracker --help`, and starts the packaged backend briefly on a dynamically selected free port. The PyInstaller check requires both `_ctypes.pyd` and its libffi runtime DLL, and the smoke test removes Conda/Python paths before launch so a missing bundled DLL cannot be hidden by the build machine.
 
 CD repeats the validation and tests, runs `npm run dist`, verifies the NSIS installer, builds the versioned and `latest` package directories, verifies the expected package files, publishes Generic Packages, creates or reuses the matching Gitea Release, and uploads the same versioned artifacts as Release assets.
 

@@ -29,16 +29,12 @@ jobs:
           node-version: "20"
           cache: npm
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
       - name: Install release dependencies
         shell: powershell
         run: |
           npm ci
-          python -m venv .venv
+          $python = & scripts\resolve-python.ps1
+          & $python -m venv --clear .venv
           .\.venv\Scripts\python.exe -m pip install --upgrade pip
           .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
           Get-Command curl.exe -ErrorAction Stop | Out-Null
